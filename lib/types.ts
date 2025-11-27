@@ -19,6 +19,7 @@ export interface CanvasElement {
   assetUrl?: string;
   shapeVariant?: "rectangle" | "circle";
   opacity?: number;
+  locked?: boolean;
 }
 
 export interface Scene {

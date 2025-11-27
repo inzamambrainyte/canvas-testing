@@ -17,8 +17,14 @@ type EditorStore = {
   deleteScene: (sceneId: string) => void;
   reorderScenes: (sceneIds: string[]) => void;
   setSelectedElement: (elementId: string | null) => void;
-  updateElement: (sceneId: string, elementId: string, patch: Partial<CanvasElement>) => void;
+  updateElement: (
+    sceneId: string,
+    elementId: string,
+    patch: Partial<CanvasElement>
+  ) => void;
   addElementToScene: (sceneId: string, element: CanvasElement) => void;
+  removeElementFromScene: (sceneId: string, elementId: string) => void;
+  toggleElementLock: (sceneId: string, elementId: string) => void;
   setAspectRatio: (ratio: AspectRatio) => void;
   setZoom: (zoom: number) => void;
   togglePlayback: () => void;
@@ -33,7 +39,7 @@ const generateScene = (index: number): Scene => ({
     "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60",
   fonts: [],
   media: [],
-  elements: []
+  elements: [],
 });
 
 export const useEditorStore = create<EditorStore>()(
@@ -46,7 +52,8 @@ export const useEditorStore = create<EditorStore>()(
       zoom: 1,
       isPlaying: false,
       history: {},
-      setActiveScene: (sceneId) => set({ activeSceneId: sceneId, selectedElementId: null }),
+      setActiveScene: (sceneId) =>
+        set({ activeSceneId: sceneId, selectedElementId: null }),
       addScene: () =>
         set((state) => {
           const nextIndex = state.scenes.length + 1;
@@ -59,7 +66,7 @@ export const useEditorStore = create<EditorStore>()(
           const clone: Scene = {
             ...scene,
             id: `scene-${Date.now()}`,
-            title: `${scene.title} Copy`
+            title: `${scene.title} Copy`,
           };
           return { scenes: [...state.scenes, clone] };
         }),
@@ -69,7 +76,7 @@ export const useEditorStore = create<EditorStore>()(
           return {
             scenes: filtered,
             activeSceneId: filtered[0]?.id ?? "",
-            selectedElementId: null
+            selectedElementId: null,
           };
         }),
       reorderScenes: (sceneIds) =>
@@ -88,7 +95,7 @@ export const useEditorStore = create<EditorStore>()(
               ...scene,
               elements: scene.elements.map((element) =>
                 element.id === elementId ? { ...element, ...patch } : element
-              )
+              ),
             };
           });
           return { scenes };
@@ -99,18 +106,52 @@ export const useEditorStore = create<EditorStore>()(
             if (scene.id !== sceneId) return scene;
             return {
               ...scene,
-              elements: [...scene.elements, element]
+              elements: [...scene.elements, element],
+            };
+          });
+          return { scenes };
+        }),
+      removeElementFromScene: (sceneId, elementId) =>
+        set((state) => {
+          const scenes = state.scenes.map((scene) => {
+            if (scene.id !== sceneId) return scene;
+            const filteredElements = scene.elements.filter(
+              (element) => element.id !== elementId
+            );
+            return {
+              ...scene,
+              elements: filteredElements,
+            };
+          });
+          const shouldClearSelection = state.selectedElementId === elementId;
+          return {
+            scenes,
+            selectedElementId: shouldClearSelection
+              ? null
+              : state.selectedElementId,
+          };
+        }),
+      toggleElementLock: (sceneId, elementId) =>
+        set((state) => {
+          const scenes = state.scenes.map((scene) => {
+            if (scene.id !== sceneId) return scene;
+            return {
+              ...scene,
+              elements: scene.elements.map((element) =>
+                element.id === elementId
+                  ? { ...element, locked: !element.locked }
+                  : element
+              ),
             };
           });
           return { scenes };
         }),
       setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
       setZoom: (zoom) => set({ zoom }),
-      togglePlayback: () => set((state) => ({ isPlaying: !state.isPlaying }))
+      togglePlayback: () => set((state) => ({ isPlaying: !state.isPlaying })),
     }),
     {
-      name: "canvas-editor-store"
+      name: "canvas-editor-store",
     }
   )
 );
-

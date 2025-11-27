@@ -1,11 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
-import Image from "next/image";
-import { Ruler } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Stage,
+  Layer,
+  Rect,
+  Text as KonvaText,
+  Circle,
+  Image as KonvaImage,
+  Transformer,
+} from "react-konva";
+import type { KonvaEventObject } from "konva/lib/Node";
+import type { ImageConfig } from "konva/lib/shapes/Image";
+import { Lock, Unlock, Trash2, Ruler } from "lucide-react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import CanvasToolbar from "./CanvasToolbar";
+import FloatingElementToolbar from "./FloatingElementToolbar";
 import { useEditorStore } from "@/store/editorStore";
 import type { CanvasElement } from "@/lib/types";
 
@@ -15,103 +26,32 @@ const ratioDimensions = {
   "1:1": { width: 720, height: 720 },
 } as const;
 
-const CanvasElementPreview = ({
-  element,
-  isSelected,
-  zoom,
-  onSelect,
-}: {
-  element: CanvasElement;
-  isSelected: boolean;
-  zoom: number;
-  onSelect: () => void;
-}) => {
-  const baseStyle = {
-    left: element.x * zoom,
-    top: element.y * zoom,
-    width: element.width * zoom,
-    height: element.height * zoom,
-    transform: `rotate(${element.rotation ?? 0}deg)`,
-  } as const;
+const placeholderImage =
+  "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=600&auto=format&fit=crop&q=60";
 
-  if (element.type === "text") {
-    return (
-      <button
-        type="button"
-        onClick={onSelect}
-        className={clsx(
-          "absolute cursor-move rounded-lg border border-transparent px-4 py-2 text-left shadow-sm outline-none transition",
-          isSelected
-            ? "border-brand-start bg-white/80"
-            : "bg-white/60 hover:border-slate-300"
-        )}
-        style={{
-          ...baseStyle,
-          fontFamily: element.fontFamily,
-          fontSize: element.fontSize,
-          color: element.fill ?? "#0f172a",
-        }}
-      >
-        {element.content}
-      </button>
-    );
-  }
+const useHtmlImage = (src?: string) => {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
 
-  if (element.type === "shape") {
-    return (
-      <button
-        type="button"
-        onClick={onSelect}
-        className={clsx(
-          "absolute cursor-move outline-none transition",
-          isSelected ? "ring-2 ring-brand-start/70" : ""
-        )}
-        style={{
-          ...baseStyle,
-          borderRadius: element.shapeVariant === "circle" ? "999px" : "18px",
-          backgroundColor: element.fill ?? "#d4d4d8",
-          opacity: element.opacity ?? 1,
-        }}
-      />
-    );
-  }
+  useEffect(() => {
+    if (!src) return;
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.src = src;
+    const handleLoad = () => setImage(img);
+    img.addEventListener("load", handleLoad);
+    return () => img.removeEventListener("load", handleLoad);
+  }, [src]);
 
-  if (element.type === "image") {
-    return (
-      <button
-        type="button"
-        onClick={onSelect}
-        className={clsx(
-          "absolute overflow-hidden rounded-xl border border-white/70 outline-none transition",
-          isSelected ? "ring-2 ring-brand-start/70" : "shadow"
-        )}
-        style={baseStyle}
-      >
-        <Image
-          src={
-            element.assetUrl ??
-            "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60"
-          }
-          alt={element.label}
-          fill
-          className="object-cover"
-          sizes="200px"
-        />
-      </button>
-    );
-  }
+  return image;
+};
 
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={clsx(
-        "absolute rounded-xl border border-dashed border-slate-300 bg-slate-100/50 outline-none transition",
-        isSelected ? "ring-2 ring-brand-start/70" : ""
-      )}
-      style={baseStyle}
-    />
-  );
+const CanvasImageNode = ({
+  src,
+  ...rest
+}: { src?: string } & Omit<ImageConfig, "image">) => {
+  const image = useHtmlImage(src);
+  if (!image) return null;
+  return <KonvaImage {...rest} image={image} />;
 };
 
 const CanvasEditor = () => {
@@ -122,6 +62,9 @@ const CanvasEditor = () => {
     setSelectedElement,
     zoom,
     aspectRatio,
+    updateElement,
+    removeElementFromScene,
+    toggleElementLock,
   } = useEditorStore((state) => ({
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
@@ -129,6 +72,9 @@ const CanvasEditor = () => {
     setSelectedElement: state.setSelectedElement,
     zoom: state.zoom,
     aspectRatio: state.aspectRatio,
+    updateElement: state.updateElement,
+    removeElementFromScene: state.removeElementFromScene,
+    toggleElementLock: state.toggleElementLock,
   }));
 
   const activeScene = useMemo(
@@ -137,6 +83,225 @@ const CanvasEditor = () => {
   );
 
   const { width, height } = ratioDimensions[aspectRatio];
+  const stageRef = useRef<Stage>(null);
+  const transformerRef = useRef<Transformer>(null);
+  const canvasShellRef = useRef<HTMLDivElement>(null);
+  const toolbarDefaultRef = useRef<{ x: number; y: number } | null>(null);
+  const toolbarPinnedRef = useRef(false);
+  const [toolbarPosition, setToolbarPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const selectedElement = useMemo(
+    () =>
+      activeScene?.elements.find((el) => el.id === selectedElementId) ?? null,
+    [activeScene?.elements, selectedElementId]
+  );
+  const editableElement =
+    selectedElement && !selectedElement.locked ? selectedElement : null;
+
+  useEffect(() => {
+    const transformer = transformerRef.current;
+    const stage = stageRef.current;
+    if (!transformer || !stage) return;
+    if (!selectedElementId) {
+      transformer.nodes([]);
+      transformer.getLayer()?.batchDraw();
+      return;
+    }
+    const node = stage.findOne(`#${selectedElementId}`);
+    const element = activeScene?.elements.find(
+      (el) => el.id === selectedElementId
+    );
+    if (node && element && !element.locked) {
+      transformer.nodes([node]);
+      transformer.getLayer()?.batchDraw();
+    } else {
+      transformer.nodes([]);
+      transformer.getLayer()?.batchDraw();
+    }
+  }, [selectedElementId, activeScene]);
+
+  const updateToolbarAutoPosition = useCallback(() => {
+    const stage = stageRef.current;
+    const wrapper = canvasShellRef.current;
+    if (!stage || !wrapper || !selectedElement) {
+      toolbarDefaultRef.current = null;
+      setToolbarPosition(null);
+      return;
+    }
+
+    const node = stage.findOne(`#${selectedElement.id}`);
+    if (!node) {
+      toolbarDefaultRef.current = null;
+      setToolbarPosition(null);
+      return;
+    }
+
+    const nodeBox = node.getClientRect({ skipTransform: false });
+    const stageRect = stage.container().getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const scaleX = stage.scaleX() ?? zoom;
+    const scaleY = stage.scaleY() ?? zoom;
+
+    const x =
+      stageRect.left -
+      wrapperRect.left +
+      (nodeBox.x + nodeBox.width / 2) * scaleX;
+    const y = stageRect.top - wrapperRect.top + nodeBox.y * scaleY - 32;
+
+    const pos = { x, y };
+    toolbarDefaultRef.current = pos;
+    setToolbarPosition(pos);
+  }, [selectedElement, zoom]);
+
+  useEffect(() => {
+    toolbarPinnedRef.current = false;
+    updateToolbarAutoPosition();
+  }, [selectedElementId, updateToolbarAutoPosition]);
+
+  useEffect(() => {
+    if (!toolbarPinnedRef.current) {
+      updateToolbarAutoPosition();
+    }
+  }, [zoom, updateToolbarAutoPosition]);
+
+  const handleDragEnd = useCallback(
+    (elementId: string, event: KonvaEventObject<DragEvent>) => {
+      const node = event.target;
+      updateElement(activeSceneId, elementId, {
+        x: node.x(),
+        y: node.y(),
+      });
+    },
+    [activeSceneId, updateElement]
+  );
+
+  const handleTransformEnd = useCallback(
+    (elementId: string, event: KonvaEventObject<Event>) => {
+      const node = event.target;
+      const scaleX = node.scaleX();
+      const scaleY = node.scaleY();
+
+      const newAttrs = {
+        x: node.x(),
+        y: node.y(),
+        width: Math.max(16, node.width() * scaleX),
+        height: Math.max(16, node.height() * scaleY),
+        rotation: node.rotation(),
+      };
+
+      node.scaleX(1);
+      node.scaleY(1);
+
+      updateElement(activeSceneId, elementId, newAttrs);
+    },
+    [activeSceneId, updateElement]
+  );
+
+  const renderElement = (element: CanvasElement) => {
+    const isLocked = element.locked ?? false;
+    const baseProps = {
+      id: element.id,
+      key: element.id,
+      x: element.x,
+      y: element.y,
+      width: element.width,
+      height: element.height,
+      rotation: element.rotation ?? 0,
+      draggable: !isLocked,
+      onDragStart: () => setSelectedElement(element.id),
+      onClick: () => setSelectedElement(element.id),
+      onTap: () => setSelectedElement(element.id),
+      onDragEnd: (event: KonvaEventObject<DragEvent>) =>
+        handleDragEnd(element.id, event),
+      onTransformEnd: (event: KonvaEventObject<Event>) =>
+        handleTransformEnd(element.id, event),
+      listening: true,
+    };
+
+    if (element.type === "text") {
+      return (
+        <KonvaText
+          {...baseProps}
+          text={element.content ?? ""}
+          fontFamily={element.fontFamily}
+          fontSize={element.fontSize ?? 32}
+          fill={element.fill ?? "#0f172a"}
+          align={element.textAlign ?? "left"}
+        />
+      );
+    }
+
+    if (element.type === "shape" && element.shapeVariant === "circle") {
+      return (
+        <Circle
+          {...baseProps}
+          width={undefined}
+          height={undefined}
+          radius={element.width / 2}
+          fill={element.fill ?? "#d4d4d8"}
+          opacity={element.opacity ?? 1}
+          offsetX={element.width / 2}
+          offsetY={element.width / 2}
+        />
+      );
+    }
+
+    if (element.type === "shape") {
+      return (
+        <Rect
+          {...baseProps}
+          cornerRadius={18}
+          fill={element.fill ?? "#d4d4d8"}
+          opacity={element.opacity ?? 1}
+        />
+      );
+    }
+
+    if (element.type === "image") {
+      return (
+        <CanvasImageNode
+          {...baseProps}
+          src={element.assetUrl ?? placeholderImage}
+          cornerRadius={20}
+        />
+      );
+    }
+
+    return (
+      <Rect {...baseProps} cornerRadius={24} fill="#0f172a" opacity={0.9} />
+    );
+  };
+
+  const handleStagePointerDown = (
+    event: KonvaEventObject<MouseEvent | TouchEvent>
+  ) => {
+    const clickedOnEmpty = event.target === event.target.getStage();
+    if (clickedOnEmpty) {
+      setSelectedElement(null);
+    }
+  };
+
+  const handleToolbarReset = () => {
+    toolbarPinnedRef.current = false;
+    if (toolbarDefaultRef.current) {
+      setToolbarPosition(toolbarDefaultRef.current);
+    } else {
+      updateToolbarAutoPosition();
+    }
+  };
+
+  const handleToolbarPositionChange = (pos: { x: number; y: number }) => {
+    toolbarPinnedRef.current = true;
+    setToolbarPosition(pos);
+  };
+
+  const handleElementPatch = (patch: Partial<CanvasElement>) => {
+    if (!selectedElement) return;
+    updateElement(activeSceneId, selectedElement.id, patch);
+  };
 
   return (
     <section className="flex flex-1 flex-col">
@@ -163,34 +328,88 @@ const CanvasEditor = () => {
               <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 border-l border-dashed border-slate-200" />
               <div className="absolute left-0 top-1/2 w-full -translate-y-1/2 border-t border-dashed border-slate-200" />
             </div>
-            <div className="flex flex-col items-center gap-2 text-xs font-medium text-slate-400">
+            {/* <div className="flex flex-col items-center gap-2 text-xs font-medium text-slate-400">
               <Ruler className="h-4 w-4" aria-hidden />
               Snap guides active
-            </div>
+            </div> */}
             <motion.div
+              ref={canvasShellRef}
               layout
               className="relative rounded-[32px] bg-gradient-to-br from-slate-50 to-white shadow-soft"
               style={{
                 width: width * zoom,
                 height: height * zoom,
-                backgroundImage:
-                  "linear-gradient(90deg,rgba(99,102,241,0.05) 1px,transparent 0),linear-gradient(180deg,rgba(99,102,241,0.05) 1px,transparent 0)",
-                backgroundSize: "32px 32px",
               }}
             >
-              {activeScene?.elements.map((element) => (
-                <CanvasElementPreview
-                  key={element.id}
-                  element={element}
-                  zoom={zoom}
-                  isSelected={selectedElementId === element.id}
-                  onSelect={() =>
-                    setSelectedElement(
-                      selectedElementId === element.id ? null : element.id
-                    )
-                  }
-                />
-              ))}
+              <Stage
+                ref={stageRef}
+                width={width}
+                height={height}
+                scaleX={zoom}
+                scaleY={zoom}
+                className="rounded-[32px]"
+                onMouseDown={handleStagePointerDown}
+                onTouchStart={handleStagePointerDown}
+              >
+                <Layer listening={false}>
+                  <Rect
+                    width={width}
+                    height={height}
+                    fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                    fillLinearGradientEndPoint={{ x: width, y: height }}
+                    fillLinearGradientColorStops={[0, "#f8fafc", 1, "#ffffff"]}
+                  />
+                  {[...Array(Math.ceil(width / 40))].map((_, idx) => (
+                    <Rect
+                      key={`v-${idx}`}
+                      x={idx * 40}
+                      width={1}
+                      height={height}
+                      fill="rgba(99,102,241,0.05)"
+                    />
+                  ))}
+                  {[...Array(Math.ceil(height / 40))].map((_, idx) => (
+                    <Rect
+                      key={`h-${idx}`}
+                      y={idx * 40}
+                      height={1}
+                      width={width}
+                      fill="rgba(99,102,241,0.05)"
+                    />
+                  ))}
+                </Layer>
+                <Layer>
+                  {activeScene?.elements.map((element) =>
+                    renderElement(element)
+                  )}
+                </Layer>
+                <Layer>
+                  <Transformer
+                    ref={transformerRef}
+                    rotateEnabled
+                    anchorSize={8}
+                    borderDash={[4, 4]}
+                    enabledAnchors={[
+                      "top-left",
+                      "top-right",
+                      "bottom-left",
+                      "bottom-right",
+                      "middle-left",
+                      "middle-right",
+                      "top-center",
+                      "bottom-center",
+                    ]}
+                  />
+                </Layer>
+              </Stage>
+              <FloatingElementToolbar
+                element={editableElement}
+                position={toolbarPosition}
+                containerRef={canvasShellRef}
+                onPositionChange={handleToolbarPositionChange}
+                onResetPosition={handleToolbarReset}
+                onUpdate={handleElementPatch}
+              />
             </motion.div>
           </div>
 
@@ -220,26 +439,72 @@ const CanvasEditor = () => {
             Layers
           </p>
           <div className="mt-3 space-y-2">
-            {activeScene?.elements.map((element) => (
-              <button
-                key={element.id}
-                type="button"
-                onClick={() =>
-                  setSelectedElement(
-                    selectedElementId === element.id ? null : element.id
-                  )
-                }
-                className={clsx(
-                  "flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-sm font-medium text-slate-600 transition",
-                  selectedElementId === element.id
-                    ? "border-brand-start/50 bg-white shadow-soft"
-                    : "border-transparent hover:border-slate-200"
-                )}
-              >
-                <span>{element.label}</span>
-                <span className="text-xs text-slate-400">{element.type}</span>
-              </button>
-            ))}
+            {activeScene?.elements.map((element) => {
+              const isActive = selectedElementId === element.id;
+              const isLocked = element.locked ?? false;
+              return (
+                <div
+                  key={element.id}
+                  className={clsx(
+                    "flex w-full items-center gap-2 rounded-2xl border px-3 py-2 text-sm transition",
+                    isActive
+                      ? "border-brand-start/50 bg-white shadow-soft"
+                      : "border-transparent hover:border-slate-200"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedElement(isActive ? null : element.id)
+                    }
+                    className="flex flex-1 flex-col items-start text-left"
+                  >
+                    <span className="font-medium text-slate-700">
+                      {element.label}
+                      {isLocked && (
+                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Locked
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {element.type}
+                    </span>
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        toggleElementLock(activeSceneId, element.id)
+                      }
+                      className={clsx(
+                        "rounded-full border p-1 transition",
+                        isLocked
+                          ? "border-brand-start/40 bg-brand-start/10 text-brand-start"
+                          : "border-transparent bg-slate-50 text-slate-400 hover:border-slate-200"
+                      )}
+                      aria-label={isLocked ? "Unlock layer" : "Lock layer"}
+                    >
+                      {isLocked ? (
+                        <Unlock className="h-4 w-4" />
+                      ) : (
+                        <Lock className="h-4 w-4" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        removeElementFromScene(activeSceneId, element.id)
+                      }
+                      className="rounded-full border border-transparent bg-slate-50 p-1 text-slate-400 transition hover:border-rose-100 hover:bg-rose-50 hover:text-rose-500"
+                      aria-label="Delete layer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
             {activeScene?.elements.length === 0 && (
               <p className="rounded-2xl bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
                 Drop assets to build your scene.

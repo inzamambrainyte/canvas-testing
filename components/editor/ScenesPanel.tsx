@@ -2,25 +2,36 @@
 
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Plus, Sparkles, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import SceneItem from "./SceneItem";
 import { useEditorStore } from "@/store/editorStore";
 
-const ScenesPanel = () => {
+type ScenesPanelProps = {
+  isCollapsed?: boolean;
+  onToggle?: () => void;
+};
+
+const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
   const {
     scenes,
     activeSceneId,
     setActiveScene,
     addScene,
     duplicateScene,
-    deleteScene
+    deleteScene,
   } = useEditorStore((state) => ({
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
     setActiveScene: state.setActiveScene,
     addScene: state.addScene,
     duplicateScene: state.duplicateScene,
-    deleteScene: state.deleteScene
+    deleteScene: state.deleteScene,
   }));
 
   const totalDuration = useMemo(
@@ -28,20 +39,47 @@ const ScenesPanel = () => {
     [scenes]
   );
 
+  if (isCollapsed) {
+    return (
+      <aside className="flex w-12 flex-col items-center border-r border-canvas-border bg-white/80 py-4">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="rounded-full border border-canvas-border bg-white p-2 text-slate-500 hover:border-brand-start hover:text-brand-start"
+          aria-label="Expand scenes panel"
+        >
+          <ChevronRight className="h-4 w-4" aria-hidden />
+        </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="flex w-80 flex-col border-r border-canvas-border bg-white/70 backdrop-blur-xl">
       <div className="flex items-center justify-between border-b border-canvas-border px-5 py-4">
         <div>
           <p className="text-sm font-medium text-slate-500">Project</p>
-          <h2 className="text-lg font-semibold text-slate-900">Launch teaser</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Launch teaser
+          </h2>
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-full border border-canvas-border px-3 py-1 text-xs font-medium text-slate-600 hover:border-brand-start hover:text-slate-900"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-brand-start" aria-hidden />
-          AI
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border border-canvas-border px-3 py-1 text-xs font-medium text-slate-600 hover:border-brand-start hover:text-slate-900"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-brand-start" aria-hidden />
+            AI
+          </button>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-full border border-canvas-border p-2 text-slate-400 hover:border-slate-300 hover:text-slate-700"
+            aria-label="Collapse scenes panel"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center justify-between px-5 py-3 text-xs uppercase tracking-wide text-slate-400">
@@ -92,5 +130,3 @@ const ScenesPanel = () => {
 };
 
 export default ScenesPanel;
-
-
