@@ -30,6 +30,10 @@ const CanvasToolbar = () => {
     togglePlayback,
     scenes,
     activeSceneId,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useEditorStore((state) => ({
     aspectRatio: state.aspectRatio,
     setAspectRatio: state.setAspectRatio,
@@ -39,6 +43,10 @@ const CanvasToolbar = () => {
     togglePlayback: state.togglePlayback,
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
+    undo: state.undo,
+    redo: state.redo,
+    canUndo: state.canUndo,
+    canRedo: state.canRedo,
   }));
 
   const activeSceneTitle = useMemo(
@@ -63,14 +71,28 @@ const CanvasToolbar = () => {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-medium text-slate-600 hover:border-slate-400"
+          onClick={() => undo(activeSceneId)}
+          disabled={!canUndo(activeSceneId)}
+          className={`inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-medium transition ${
+            canUndo(activeSceneId)
+              ? "text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+              : "cursor-not-allowed text-slate-300"
+          }`}
+          title="Undo (Ctrl+Z)"
         >
           <Undo2 className="h-4 w-4" aria-hidden />
           Undo
         </button>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-medium text-slate-600 hover:border-slate-400"
+          onClick={() => redo(activeSceneId)}
+          disabled={!canRedo(activeSceneId)}
+          className={`inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-medium transition ${
+            canRedo(activeSceneId)
+              ? "text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+              : "cursor-not-allowed text-slate-300"
+          }`}
+          title="Redo (Ctrl+Shift+Z)"
         >
           <Redo2 className="h-4 w-4" aria-hidden />
           Redo
@@ -125,10 +147,12 @@ const CanvasToolbar = () => {
           type="button"
           whileTap={{ scale: 0.97 }}
           className="inline-flex items-center gap-2 rounded-full border border-transparent bg-gradient-to-r from-brand-start to-brand-end px-4 py-2 text-sm font-semibold text-white shadow-soft"
-          onClick={togglePlayback}
+          onClick={() => {
+            window.open("/preview", "_blank");
+          }}
         >
           <Play className="h-4 w-4" aria-hidden />
-          {isPlaying ? "Pause" : "Preview"}
+          Preview
         </motion.button>
         <button
           type="button"

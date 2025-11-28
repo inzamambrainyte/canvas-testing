@@ -51,6 +51,8 @@ const generateElementFromAsset = (
         fill: "#8A5BFF",
         opacity: 0.2,
         shapeVariant: item.id === "shape-2" ? "circle" : "rectangle",
+        cornerRadius: item.id === "shape-2" ? undefined : 18,
+        strokeWidth: 0,
         locked: false,
       };
     case "images":
@@ -61,7 +63,7 @@ const generateElementFromAsset = (
         y: 200,
         width: 260,
         height: 160,
-        assetUrl: item.preview,
+        assetUrl: item.assetUrl || item.preview,
         locked: false,
       };
     case "videos":
@@ -72,7 +74,7 @@ const generateElementFromAsset = (
         y: 240,
         width: 280,
         height: 180,
-        assetUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
+        assetUrl: item.assetUrl || item.preview || "",
         locked: false,
       };
     case "audio":
@@ -85,6 +87,8 @@ const generateElementFromAsset = (
         height: 60,
         fill: "#1f2937",
         opacity: 0.1,
+        cornerRadius: 18,
+        strokeWidth: 0,
         locked: false,
       };
     case "brand":
@@ -97,6 +101,8 @@ const generateElementFromAsset = (
         width: 280,
         height: 120,
         fill: "#f4f3ff",
+        cornerRadius: 18,
+        strokeWidth: 0,
         locked: false,
       };
   }

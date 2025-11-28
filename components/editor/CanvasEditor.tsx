@@ -12,7 +12,15 @@ import {
 } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ImageConfig } from "konva/lib/shapes/Image";
-import { Lock, Unlock, Trash2, Ruler } from "lucide-react";
+import {
+  Lock,
+  Unlock,
+  Trash2,
+  ArrowDown,
+  ArrowUp,
+  ChevronsDown,
+  ChevronsUp,
+} from "lucide-react";
 import { motion } from "framer-motion";
 import clsx from "clsx";
 import CanvasToolbar from "./CanvasToolbar";
@@ -47,11 +55,41 @@ const useHtmlImage = (src?: string) => {
 
 const CanvasImageNode = ({
   src,
+  imageFit = "cover",
   ...rest
-}: { src?: string } & Omit<ImageConfig, "image">) => {
+}: {
+  src?: string;
+  imageFit?: "cover" | "contain" | "fill" | "fit-to-screen";
+} & Omit<ImageConfig, "image">) => {
   const image = useHtmlImage(src);
   if (!image) return null;
-  return <KonvaImage {...rest} image={image} />;
+
+  // Handle different fit modes
+  const props = { ...rest };
+  
+  if (imageFit === "contain" || imageFit === "fit-to-screen") {
+    // Calculate aspect ratio to maintain
+    const imageAspect = image.width / image.height;
+    const containerAspect = (rest.width || 1) / (rest.height || 1);
+    
+    if (imageAspect > containerAspect) {
+      // Image is wider - fit to width
+      props.height = (rest.width || 1) / imageAspect;
+    } else {
+      // Image is taller - fit to height
+      props.width = (rest.height || 1) * imageAspect;
+    }
+  } else if (imageFit === "fill") {
+    // Fill mode - use original dimensions, may crop
+    props.width = rest.width;
+    props.height = rest.height;
+  } else {
+    // Cover mode (default) - fill container, may crop
+    props.width = rest.width;
+    props.height = rest.height;
+  }
+
+  return <KonvaImage {...props} image={image} />;
 };
 
 const CanvasEditor = () => {
@@ -65,6 +103,14 @@ const CanvasEditor = () => {
     updateElement,
     removeElementFromScene,
     toggleElementLock,
+    moveElementBackward,
+    moveElementForward,
+    moveElementToBack,
+    moveElementToFront,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useEditorStore((state) => ({
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
@@ -75,6 +121,14 @@ const CanvasEditor = () => {
     updateElement: state.updateElement,
     removeElementFromScene: state.removeElementFromScene,
     toggleElementLock: state.toggleElementLock,
+    moveElementBackward: state.moveElementBackward,
+    moveElementForward: state.moveElementForward,
+    moveElementToBack: state.moveElementToBack,
+    moveElementToFront: state.moveElementToFront,
+    undo: state.undo,
+    redo: state.redo,
+    canUndo: state.canUndo,
+    canRedo: state.canRedo,
   }));
 
   const activeScene = useMemo(
@@ -86,8 +140,6 @@ const CanvasEditor = () => {
   const stageRef = useRef<Stage>(null);
   const transformerRef = useRef<Transformer>(null);
   const canvasShellRef = useRef<HTMLDivElement>(null);
-  const toolbarDefaultRef = useRef<{ x: number; y: number } | null>(null);
-  const toolbarPinnedRef = useRef(false);
   const [toolbarPosition, setToolbarPosition] = useState<{
     x: number;
     y: number;
@@ -123,49 +175,55 @@ const CanvasEditor = () => {
     }
   }, [selectedElementId, activeScene]);
 
-  const updateToolbarAutoPosition = useCallback(() => {
-    const stage = stageRef.current;
-    const wrapper = canvasShellRef.current;
-    if (!stage || !wrapper || !selectedElement) {
-      toolbarDefaultRef.current = null;
-      setToolbarPosition(null);
-      return;
-    }
-
-    const node = stage.findOne(`#${selectedElement.id}`);
-    if (!node) {
-      toolbarDefaultRef.current = null;
-      setToolbarPosition(null);
-      return;
-    }
-
-    const nodeBox = node.getClientRect({ skipTransform: false });
-    const stageRect = stage.container().getBoundingClientRect();
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const scaleX = stage.scaleX() ?? zoom;
-    const scaleY = stage.scaleY() ?? zoom;
-
-    const x =
-      stageRect.left -
-      wrapperRect.left +
-      (nodeBox.x + nodeBox.width / 2) * scaleX;
-    const y = stageRect.top - wrapperRect.top + nodeBox.y * scaleY - 32;
-
-    const pos = { x, y };
-    toolbarDefaultRef.current = pos;
-    setToolbarPosition(pos);
-  }, [selectedElement, zoom]);
-
   useEffect(() => {
-    toolbarPinnedRef.current = false;
-    updateToolbarAutoPosition();
-  }, [selectedElementId, updateToolbarAutoPosition]);
-
-  useEffect(() => {
-    if (!toolbarPinnedRef.current) {
-      updateToolbarAutoPosition();
+    if (selectedElementId && editableElement) {
+      setToolbarPosition({ x: 0, y: 0 });
+    } else {
+      setToolbarPosition(null);
     }
-  }, [zoom, updateToolbarAutoPosition]);
+  }, [selectedElementId, editableElement]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check if user is typing in an input field
+      const target = event.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Ctrl+Z or Cmd+Z for undo
+      if ((event.ctrlKey || event.metaKey) && event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        if (canUndo(activeSceneId)) {
+          undo(activeSceneId);
+        }
+      }
+
+      // Ctrl+Shift+Z or Cmd+Shift+Z for redo
+      if ((event.ctrlKey || event.metaKey) && event.key === "z" && event.shiftKey) {
+        event.preventDefault();
+        if (canRedo(activeSceneId)) {
+          redo(activeSceneId);
+        }
+      }
+
+      // Ctrl+Y or Cmd+Y for redo (alternative)
+      if ((event.ctrlKey || event.metaKey) && event.key === "y") {
+        event.preventDefault();
+        if (canRedo(activeSceneId)) {
+          redo(activeSceneId);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeSceneId, undo, redo, canUndo, canRedo]);
 
   const handleDragEnd = useCallback(
     (elementId: string, event: KonvaEventObject<DragEvent>) => {
@@ -243,6 +301,8 @@ const CanvasEditor = () => {
           radius={element.width / 2}
           fill={element.fill ?? "#d4d4d8"}
           opacity={element.opacity ?? 1}
+          stroke={element.stroke}
+          strokeWidth={element.strokeWidth ?? 0}
           offsetX={element.width / 2}
           offsetY={element.width / 2}
         />
@@ -253,9 +313,11 @@ const CanvasEditor = () => {
       return (
         <Rect
           {...baseProps}
-          cornerRadius={18}
+          cornerRadius={element.cornerRadius ?? 18}
           fill={element.fill ?? "#d4d4d8"}
           opacity={element.opacity ?? 1}
+          stroke={element.stroke}
+          strokeWidth={element.strokeWidth ?? 0}
         />
       );
     }
@@ -265,7 +327,9 @@ const CanvasEditor = () => {
         <CanvasImageNode
           {...baseProps}
           src={element.assetUrl ?? placeholderImage}
-          cornerRadius={20}
+          cornerRadius={element.cornerRadius ?? 0}
+          imageFit={element.imageFit ?? "cover"}
+          opacity={element.opacity ?? 1}
         />
       );
     }
@@ -285,22 +349,70 @@ const CanvasEditor = () => {
   };
 
   const handleToolbarReset = () => {
-    toolbarPinnedRef.current = false;
-    if (toolbarDefaultRef.current) {
-      setToolbarPosition(toolbarDefaultRef.current);
-    } else {
-      updateToolbarAutoPosition();
-    }
+    // No-op since toolbar is now sticky
   };
 
   const handleToolbarPositionChange = (pos: { x: number; y: number }) => {
-    toolbarPinnedRef.current = true;
-    setToolbarPosition(pos);
+    // No-op since toolbar is now sticky
   };
 
   const handleElementPatch = (patch: Partial<CanvasElement>) => {
     if (!selectedElement) return;
-    updateElement(activeSceneId, selectedElement.id, patch);
+    
+    // Handle fit-to-screen for images
+    if (patch.imageFit === "fit-to-screen" && selectedElement.type === "image") {
+      const canvasDims = ratioDimensions[aspectRatio];
+      const imageUrl = selectedElement.assetUrl;
+      
+      if (imageUrl) {
+        // Load image to get its dimensions
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.src = imageUrl;
+        img.onload = () => {
+          const imageAspect = img.width / img.height;
+          const canvasAspect = canvasDims.width / canvasDims.height;
+          
+          let newWidth: number;
+          let newHeight: number;
+          
+          if (imageAspect > canvasAspect) {
+            // Image is wider - fit to canvas width
+            newWidth = canvasDims.width;
+            newHeight = canvasDims.width / imageAspect;
+          } else {
+            // Image is taller - fit to canvas height
+            newHeight = canvasDims.height;
+            newWidth = canvasDims.height * imageAspect;
+          }
+          
+          // Center the image
+          const x = (canvasDims.width - newWidth) / 2;
+          const y = (canvasDims.height - newHeight) / 2;
+          
+          updateElement(activeSceneId, selectedElement.id, {
+            ...patch,
+            width: newWidth,
+            height: newHeight,
+            x,
+            y,
+            imageFit: "contain", // Set to contain after fitting
+          });
+        };
+      } else {
+        // Fallback if no image URL
+        updateElement(activeSceneId, selectedElement.id, {
+          ...patch,
+          width: canvasDims.width,
+          height: canvasDims.height,
+          x: 0,
+          y: 0,
+          imageFit: "contain",
+        });
+      }
+    } else {
+      updateElement(activeSceneId, selectedElement.id, patch);
+    }
   };
 
   return (
@@ -322,95 +434,93 @@ const CanvasEditor = () => {
               Auto-sync
             </button>
           </div>
-          <div className="relative flex flex-1 items-center justify-center rounded-3xl border border-canvas-border bg-white/90 p-6 shadow-soft">
-            <div className="pointer-events-none absolute inset-6 rounded-3xl border border-dashed border-slate-200" />
-            <div className="absolute inset-0 opacity-30">
-              <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 border-l border-dashed border-slate-200" />
-              <div className="absolute left-0 top-1/2 w-full -translate-y-1/2 border-t border-dashed border-slate-200" />
-            </div>
-            {/* <div className="flex flex-col items-center gap-2 text-xs font-medium text-slate-400">
-              <Ruler className="h-4 w-4" aria-hidden />
-              Snap guides active
-            </div> */}
-            <motion.div
-              ref={canvasShellRef}
-              layout
-              className="relative rounded-[32px] bg-gradient-to-br from-slate-50 to-white shadow-soft"
-              style={{
-                width: width * zoom,
-                height: height * zoom,
-              }}
-            >
-              <Stage
-                ref={stageRef}
-                width={width}
-                height={height}
-                scaleX={zoom}
-                scaleY={zoom}
-                className="rounded-[32px]"
-                onMouseDown={handleStagePointerDown}
-                onTouchStart={handleStagePointerDown}
+          <div className="relative flex flex-1 flex-col rounded-3xl border border-canvas-border bg-white/90 p-6 shadow-soft">
+            <FloatingElementToolbar
+              element={editableElement}
+              position={toolbarPosition}
+              containerRef={canvasShellRef}
+              onPositionChange={handleToolbarPositionChange}
+              onResetPosition={handleToolbarReset}
+              onUpdate={handleElementPatch}
+            />
+            <div className="relative flex flex-1 items-center justify-center">
+              <div className="pointer-events-none absolute inset-6 rounded-3xl border border-dashed border-slate-200" />
+              <div className="absolute inset-0 opacity-30">
+                <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 border-l border-dashed border-slate-200" />
+                <div className="absolute left-0 top-1/2 w-full -translate-y-1/2 border-t border-dashed border-slate-200" />
+              </div>
+              <motion.div
+                ref={canvasShellRef}
+                layout
+                className="relative rounded-[32px] bg-gradient-to-br from-slate-50 to-white shadow-soft"
+                style={{
+                  width: width * zoom,
+                  height: height * zoom,
+                }}
               >
-                <Layer listening={false}>
-                  <Rect
-                    width={width}
-                    height={height}
-                    fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-                    fillLinearGradientEndPoint={{ x: width, y: height }}
-                    fillLinearGradientColorStops={[0, "#f8fafc", 1, "#ffffff"]}
-                  />
-                  {[...Array(Math.ceil(width / 40))].map((_, idx) => (
+                <Stage
+                  ref={stageRef}
+                  width={width}
+                  height={height}
+                  scaleX={zoom}
+                  scaleY={zoom}
+                  className="rounded-[32px]"
+                  onMouseDown={handleStagePointerDown}
+                  onTouchStart={handleStagePointerDown}
+                >
+                  <Layer listening={false}>
                     <Rect
-                      key={`v-${idx}`}
-                      x={idx * 40}
-                      width={1}
-                      height={height}
-                      fill="rgba(99,102,241,0.05)"
-                    />
-                  ))}
-                  {[...Array(Math.ceil(height / 40))].map((_, idx) => (
-                    <Rect
-                      key={`h-${idx}`}
-                      y={idx * 40}
-                      height={1}
                       width={width}
-                      fill="rgba(99,102,241,0.05)"
+                      height={height}
+                      fillLinearGradientStartPoint={{ x: 0, y: 0 }}
+                      fillLinearGradientEndPoint={{ x: width, y: height }}
+                      fillLinearGradientColorStops={[0, "#f8fafc", 1, "#ffffff"]}
                     />
-                  ))}
-                </Layer>
-                <Layer>
-                  {activeScene?.elements.map((element) =>
-                    renderElement(element)
-                  )}
-                </Layer>
-                <Layer>
-                  <Transformer
-                    ref={transformerRef}
-                    rotateEnabled
-                    anchorSize={8}
-                    borderDash={[4, 4]}
-                    enabledAnchors={[
-                      "top-left",
-                      "top-right",
-                      "bottom-left",
-                      "bottom-right",
-                      "middle-left",
-                      "middle-right",
-                      "top-center",
-                      "bottom-center",
-                    ]}
-                  />
-                </Layer>
-              </Stage>
-              <FloatingElementToolbar
-                element={editableElement}
-                position={toolbarPosition}
-                containerRef={canvasShellRef}
-                onPositionChange={handleToolbarPositionChange}
-                onResetPosition={handleToolbarReset}
-                onUpdate={handleElementPatch}
-              />
-            </motion.div>
+                    {[...Array(Math.ceil(width / 40))].map((_, idx) => (
+                      <Rect
+                        key={`v-${idx}`}
+                        x={idx * 40}
+                        width={1}
+                        height={height}
+                        fill="rgba(99,102,241,0.05)"
+                      />
+                    ))}
+                    {[...Array(Math.ceil(height / 40))].map((_, idx) => (
+                      <Rect
+                        key={`h-${idx}`}
+                        y={idx * 40}
+                        height={1}
+                        width={width}
+                        fill="rgba(99,102,241,0.05)"
+                      />
+                    ))}
+                  </Layer>
+                  <Layer>
+                    {activeScene?.elements.map((element) =>
+                      renderElement(element)
+                    )}
+                  </Layer>
+                  <Layer>
+                    <Transformer
+                      ref={transformerRef}
+                      rotateEnabled
+                      anchorSize={8}
+                      borderDash={[4, 4]}
+                      enabledAnchors={[
+                        "top-left",
+                        "top-right",
+                        "bottom-left",
+                        "bottom-right",
+                        "middle-left",
+                        "middle-right",
+                        "top-center",
+                        "bottom-center",
+                      ]}
+                    />
+                  </Layer>
+                </Stage>
+              </motion.div>
+            </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-canvas-border bg-white/80 p-4">
@@ -439,9 +549,11 @@ const CanvasEditor = () => {
             Layers
           </p>
           <div className="mt-3 space-y-2">
-            {activeScene?.elements.map((element) => {
+            {activeScene?.elements.map((element, index) => {
               const isActive = selectedElementId === element.id;
               const isLocked = element.locked ?? false;
+              const isFirst = index === 0;
+              const isLast = index === activeScene.elements.length - 1;
               return (
                 <div
                   key={element.id}
@@ -472,11 +584,86 @@ const CanvasEditor = () => {
                     </span>
                   </button>
                   <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5 rounded-full border border-slate-200 bg-white p-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveElementToBack(activeSceneId, element.id);
+                        }}
+                        disabled={isFirst}
+                        className={clsx(
+                          "rounded-full p-1 transition",
+                          isFirst
+                            ? "cursor-not-allowed opacity-40"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        )}
+                        aria-label="Move to back"
+                        title="To back"
+                      >
+                        <ChevronsDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveElementBackward(activeSceneId, element.id);
+                        }}
+                        disabled={isFirst}
+                        className={clsx(
+                          "rounded-full p-1 transition",
+                          isFirst
+                            ? "cursor-not-allowed opacity-40"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        )}
+                        aria-label="Move backward"
+                        title="Backward"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveElementForward(activeSceneId, element.id);
+                        }}
+                        disabled={isLast}
+                        className={clsx(
+                          "rounded-full p-1 transition",
+                          isLast
+                            ? "cursor-not-allowed opacity-40"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        )}
+                        aria-label="Move forward"
+                        title="Forward"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          moveElementToFront(activeSceneId, element.id);
+                        }}
+                        disabled={isLast}
+                        className={clsx(
+                          "rounded-full p-1 transition",
+                          isLast
+                            ? "cursor-not-allowed opacity-40"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        )}
+                        aria-label="Move to front"
+                        title="To front"
+                      >
+                        <ChevronsUp className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        toggleElementLock(activeSceneId, element.id)
-                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleElementLock(activeSceneId, element.id);
+                      }}
                       className={clsx(
                         "rounded-full border p-1 transition",
                         isLocked
@@ -484,6 +671,7 @@ const CanvasEditor = () => {
                           : "border-transparent bg-slate-50 text-slate-400 hover:border-slate-200"
                       )}
                       aria-label={isLocked ? "Unlock layer" : "Lock layer"}
+                      title={isLocked ? "Unlock" : "Lock"}
                     >
                       {isLocked ? (
                         <Unlock className="h-4 w-4" />
@@ -493,11 +681,13 @@ const CanvasEditor = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        removeElementFromScene(activeSceneId, element.id)
-                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeElementFromScene(activeSceneId, element.id);
+                      }}
                       className="rounded-full border border-transparent bg-slate-50 p-1 text-slate-400 transition hover:border-rose-100 hover:bg-rose-50 hover:text-rose-500"
                       aria-label="Delete layer"
+                      title="Delete"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
