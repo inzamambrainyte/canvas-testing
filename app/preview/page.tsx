@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
   Stage,
   Layer,
@@ -65,6 +65,171 @@ const CanvasImageNode = ({
   }
 
   return <KonvaImage {...props} image={image} />;
+};
+
+const CanvasVideoNode = ({
+  src,
+  isPlaying = true,
+  ...rest
+}: {
+  src?: string;
+  isPlaying?: boolean;
+} & any) => {
+  const [videoImage, setVideoImage] = useState<HTMLImageElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!src) {
+      setVideoImage(null);
+      return;
+    }
+
+    const videoElement = document.createElement("video");
+    videoElement.src = src;
+    videoElement.crossOrigin = "anonymous";
+    videoElement.preload = "auto";
+    videoElement.muted = false;
+    videoElement.loop = true;
+    videoElement.playsInline = true;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    canvasRef.current = canvas;
+    videoRef.current = videoElement;
+
+    const updateCanvas = () => {
+      if (!ctx || !videoElement) return;
+
+      // Try to get video dimensions, fallback to element dimensions
+      const videoWidth = videoElement.videoWidth || rest.width || 640;
+      const videoHeight = videoElement.videoHeight || rest.height || 360;
+
+      if (videoWidth === 0 || videoHeight === 0) {
+        // Video dimensions not ready yet
+        return;
+      }
+
+      canvas.width = videoWidth;
+      canvas.height = videoHeight;
+
+      try {
+        ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+        const image = new window.Image();
+        image.src = canvas.toDataURL();
+        image.onload = () => {
+          setVideoImage(image);
+        };
+        // Set immediately as fallback
+        setVideoImage(image);
+      } catch (error) {
+        console.error("Error updating canvas:", error);
+      }
+    };
+
+    const handleLoadedMetadata = () => {
+      updateCanvas();
+    };
+
+    const handleLoadedData = () => {
+      updateCanvas();
+    };
+
+    const handleCanPlay = () => {
+      updateCanvas();
+    };
+
+    const handleTimeUpdate = () => {
+      if (isPlaying && ctx && videoElement) {
+        updateCanvas();
+      }
+    };
+
+    videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
+    videoElement.addEventListener("loadeddata", handleLoadedData);
+    videoElement.addEventListener("canplay", handleCanPlay);
+    videoElement.addEventListener("timeupdate", handleTimeUpdate);
+
+    // Try to load the video
+    videoElement.load();
+
+    const animate = () => {
+      if (isPlaying && videoElement && ctx) {
+        updateCanvas();
+        animationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    // Start playing after a short delay to ensure video is ready
+    const startPlayback = () => {
+      if (isPlaying) {
+        const playPromise = videoElement.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              animationFrameRef.current = requestAnimationFrame(animate);
+            })
+            .catch((error) => {
+              console.error("Error playing video:", error);
+              // Try again after a delay
+              setTimeout(() => {
+                videoElement.play().catch(() => {});
+              }, 500);
+            });
+        }
+      } else {
+        videoElement.pause();
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+      }
+    };
+
+    // Wait for video to be ready before starting playback
+    const readyCheck = () => {
+      if (videoElement.readyState >= 2) {
+        startPlayback();
+        updateCanvas();
+      } else {
+        setTimeout(readyCheck, 100);
+      }
+    };
+
+    readyCheck();
+
+    return () => {
+      videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      videoElement.removeEventListener("loadeddata", handleLoadedData);
+      videoElement.removeEventListener("canplay", handleCanPlay);
+      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+      videoElement.pause();
+      videoElement.src = "";
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [src, isPlaying, rest.width, rest.height]);
+
+  if (!videoImage) {
+    return (
+      <Rect
+        {...rest}
+        fill="#0f172a"
+        cornerRadius={rest.cornerRadius ?? 0}
+        opacity={0.7}
+      />
+    );
+  }
+
+  return (
+    <KonvaImage
+      {...rest}
+      image={videoImage}
+      cornerRadius={rest.cornerRadius ?? 0}
+      opacity={rest.opacity ?? 1}
+    />
+  );
 };
 
 const PreviewPage = () => {
@@ -140,6 +305,22 @@ const PreviewPage = () => {
       );
     }
 
+    if (element.type === "video") {
+      return (
+        <CanvasVideoNode
+          {...baseProps}
+          src={element.assetUrl}
+          cornerRadius={element.cornerRadius ?? 0}
+          isPlaying={true}
+        />
+      );
+    }
+
+    if (element.type === "audio") {
+      // Audio elements are not visually rendered in preview
+      return null;
+    }
+
     return null;
   };
 
@@ -160,4 +341,3 @@ const PreviewPage = () => {
 };
 
 export default PreviewPage;
-

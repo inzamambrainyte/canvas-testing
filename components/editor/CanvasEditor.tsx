@@ -9,6 +9,8 @@ import {
   Circle,
   Image as KonvaImage,
   Transformer,
+  Group,
+  Line,
 } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { ImageConfig } from "konva/lib/shapes/Image";
@@ -66,12 +68,12 @@ const CanvasImageNode = ({
 
   // Handle different fit modes
   const props = { ...rest };
-  
+
   if (imageFit === "contain" || imageFit === "fit-to-screen") {
     // Calculate aspect ratio to maintain
     const imageAspect = image.width / image.height;
     const containerAspect = (rest.width || 1) / (rest.height || 1);
-    
+
     if (imageAspect > containerAspect) {
       // Image is wider - fit to width
       props.height = (rest.width || 1) / imageAspect;
@@ -90,6 +92,267 @@ const CanvasImageNode = ({
   }
 
   return <KonvaImage {...props} image={image} />;
+};
+
+const CanvasVideoNode = ({
+  src,
+  isPlaying,
+  onTogglePlay,
+  ...rest
+}: {
+  src?: string;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
+} & any) => {
+  const [videoImage, setVideoImage] = useState<HTMLImageElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!src) {
+      setVideoImage(null);
+      return;
+    }
+
+    const videoElement = document.createElement("video");
+    videoElement.src = src;
+    videoElement.crossOrigin = "anonymous";
+    videoElement.preload = "metadata";
+    videoElement.muted = false;
+    videoElement.loop = true;
+    videoElement.playsInline = true;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    canvasRef.current = canvas;
+    videoRef.current = videoElement;
+
+    const updateCanvas = () => {
+      if (!ctx || !videoElement || videoElement.readyState < 2) return;
+
+      canvas.width = videoElement.videoWidth || rest.width || 640;
+      canvas.height = videoElement.videoHeight || rest.height || 360;
+
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+      const image = new window.Image();
+      image.src = canvas.toDataURL();
+      setVideoImage(image);
+    };
+
+    const handleLoadedMetadata = () => {
+      canvas.width = videoElement.videoWidth || rest.width || 640;
+      canvas.height = videoElement.videoHeight || rest.height || 360;
+      updateCanvas();
+    };
+
+    const handleTimeUpdate = () => {
+      if (isPlaying && ctx && videoElement) {
+        updateCanvas();
+      }
+    };
+
+    videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
+    videoElement.addEventListener("timeupdate", handleTimeUpdate);
+
+    const animate = () => {
+      if (isPlaying && videoElement && ctx) {
+        updateCanvas();
+        animationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    if (isPlaying) {
+      videoElement.play().catch((error) => {
+        console.error("Error playing video:", error);
+      });
+      animationFrameRef.current = requestAnimationFrame(animate);
+    } else {
+      videoElement.pause();
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    }
+
+    return () => {
+      videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
+      videoElement.pause();
+      videoElement.src = "";
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [src, isPlaying, rest.width, rest.height]);
+
+  if (!videoImage) {
+    return (
+      <Rect
+        {...rest}
+        fill="#0f172a"
+        cornerRadius={rest.cornerRadius ?? 0}
+        opacity={0.7}
+      />
+    );
+  }
+
+  return (
+    <KonvaImage
+      {...rest}
+      image={videoImage}
+      cornerRadius={rest.cornerRadius ?? 0}
+      opacity={rest.opacity ?? 1}
+      onClick={onTogglePlay}
+      onTap={onTogglePlay}
+    />
+  );
+};
+
+const CanvasAudioNode = ({
+  src,
+  isPlaying,
+  volume,
+  onTogglePlay,
+  onVolumeChange,
+  ...rest
+}: {
+  src?: string;
+  isPlaying?: boolean;
+  volume?: number;
+  onTogglePlay?: () => void;
+  onVolumeChange?: (volume: number) => void;
+} & any) => {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!src) return;
+
+    const audioElement = document.createElement("audio");
+    audioElement.src = src;
+    audioElement.crossOrigin = "anonymous";
+    audioElement.preload = "metadata";
+    audioElement.loop = false;
+    audioRef.current = audioElement;
+
+    return () => {
+      audioElement.pause();
+      audioElement.src = "";
+    };
+  }, [src]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current.play().catch((error) => {
+        console.error("Error playing audio:", error);
+      });
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+    audioRef.current.volume = volume ?? 1;
+  }, [volume]);
+
+  const buttonSize = 14;
+  const buttonX = 20;
+  const buttonY = rest.height / 2;
+
+  return (
+    <Group {...rest}>
+      {/* Background */}
+      <Rect
+        x={0}
+        y={0}
+        width={rest.width}
+        height={rest.height}
+        fill={rest.fill ?? "#1f2937"}
+        cornerRadius={rest.cornerRadius ?? 18}
+        opacity={rest.opacity ?? 0.9}
+      />
+      {/* Audio waveform visualization placeholder */}
+      <Rect
+        x={50}
+        y={rest.height / 2 - 8}
+        width={rest.width - 100}
+        height={16}
+        fill="#4B8BFF"
+        cornerRadius={8}
+        opacity={isPlaying ? 0.8 : 0.4}
+      />
+      {/* Play/Pause button */}
+      <Group
+        x={buttonX}
+        y={buttonY}
+        onClick={onTogglePlay}
+        onTap={onTogglePlay}
+      >
+        <Circle x={0} y={0} radius={buttonSize} fill="white" opacity={0.9} />
+        {isPlaying ? (
+          // Pause icon (two rectangles)
+          <>
+            <Rect
+              x={-buttonSize * 0.4}
+              y={-buttonSize * 0.5}
+              width={buttonSize * 0.3}
+              height={buttonSize}
+              fill="#1f2937"
+              cornerRadius={1}
+            />
+            <Rect
+              x={buttonSize * 0.1}
+              y={-buttonSize * 0.5}
+              width={buttonSize * 0.3}
+              height={buttonSize}
+              fill="#1f2937"
+              cornerRadius={1}
+            />
+          </>
+        ) : (
+          // Play icon (triangle)
+          <Line
+            points={[
+              -buttonSize * 0.3,
+              -buttonSize * 0.6,
+              -buttonSize * 0.3,
+              buttonSize * 0.6,
+              buttonSize * 0.5,
+              0,
+            ]}
+            fill="#1f2937"
+            closed
+          />
+        )}
+      </Group>
+      {/* Volume indicator - clickable to toggle mute */}
+      <Group
+        x={rest.width - 30}
+        y={rest.height / 2}
+        onClick={() => {
+          const newVolume = (volume ?? 1) > 0 ? 0 : 1;
+          onVolumeChange?.(newVolume);
+        }}
+        onTap={() => {
+          const newVolume = (volume ?? 1) > 0 ? 0 : 1;
+          onVolumeChange?.(newVolume);
+        }}
+      >
+        <Rect
+          x={-2}
+          y={-8}
+          width={4}
+          height={16}
+          fill="#8A5BFF"
+          cornerRadius={2}
+          opacity={volume ?? 1}
+        />
+      </Group>
+    </Group>
+  );
 };
 
 const CanvasEditor = () => {
@@ -144,6 +407,13 @@ const CanvasEditor = () => {
     x: number;
     y: number;
   } | null>(null);
+  const [playingVideos, setPlayingVideos] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [playingAudios, setPlayingAudios] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [audioVolumes, setAudioVolumes] = useState<Record<string, number>>({});
 
   const selectedElement = useMemo(
     () =>
@@ -197,7 +467,11 @@ const CanvasEditor = () => {
       }
 
       // Ctrl+Z or Cmd+Z for undo
-      if ((event.ctrlKey || event.metaKey) && event.key === "z" && !event.shiftKey) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key === "z" &&
+        !event.shiftKey
+      ) {
         event.preventDefault();
         if (canUndo(activeSceneId)) {
           undo(activeSceneId);
@@ -205,7 +479,11 @@ const CanvasEditor = () => {
       }
 
       // Ctrl+Shift+Z or Cmd+Shift+Z for redo
-      if ((event.ctrlKey || event.metaKey) && event.key === "z" && event.shiftKey) {
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key === "z" &&
+        event.shiftKey
+      ) {
         event.preventDefault();
         if (canRedo(activeSceneId)) {
           redo(activeSceneId);
@@ -334,6 +612,55 @@ const CanvasEditor = () => {
       );
     }
 
+    if (element.type === "video") {
+      const isVideoPlaying = playingVideos[element.id] ?? false;
+
+      return (
+        <CanvasVideoNode
+          {...baseProps}
+          src={element.assetUrl}
+          cornerRadius={element.cornerRadius ?? 0}
+          opacity={element.opacity ?? 1}
+          isPlaying={isVideoPlaying}
+          onTogglePlay={() => {
+            setPlayingVideos((prev) => ({
+              ...prev,
+              [element.id]: !prev[element.id],
+            }));
+          }}
+        />
+      );
+    }
+
+    if (element.type === "audio") {
+      const isAudioPlaying = playingAudios[element.id] ?? false;
+      const audioVolume = audioVolumes[element.id] ?? 1;
+
+      return (
+        <CanvasAudioNode
+          {...baseProps}
+          src={element.assetUrl}
+          cornerRadius={element.cornerRadius ?? 18}
+          opacity={element.opacity ?? 0.9}
+          fill={element.fill ?? "#1f2937"}
+          isPlaying={isAudioPlaying}
+          volume={audioVolume}
+          onTogglePlay={() => {
+            setPlayingAudios((prev) => ({
+              ...prev,
+              [element.id]: !prev[element.id],
+            }));
+          }}
+          onVolumeChange={(newVolume: number) => {
+            setAudioVolumes((prev) => ({
+              ...prev,
+              [element.id]: newVolume,
+            }));
+          }}
+        />
+      );
+    }
+
     return (
       <Rect {...baseProps} cornerRadius={24} fill="#0f172a" opacity={0.9} />
     );
@@ -358,12 +685,15 @@ const CanvasEditor = () => {
 
   const handleElementPatch = (patch: Partial<CanvasElement>) => {
     if (!selectedElement) return;
-    
+
     // Handle fit-to-screen for images
-    if (patch.imageFit === "fit-to-screen" && selectedElement.type === "image") {
+    if (
+      patch.imageFit === "fit-to-screen" &&
+      selectedElement.type === "image"
+    ) {
       const canvasDims = ratioDimensions[aspectRatio];
       const imageUrl = selectedElement.assetUrl;
-      
+
       if (imageUrl) {
         // Load image to get its dimensions
         const img = new window.Image();
@@ -372,10 +702,10 @@ const CanvasEditor = () => {
         img.onload = () => {
           const imageAspect = img.width / img.height;
           const canvasAspect = canvasDims.width / canvasDims.height;
-          
+
           let newWidth: number;
           let newHeight: number;
-          
+
           if (imageAspect > canvasAspect) {
             // Image is wider - fit to canvas width
             newWidth = canvasDims.width;
@@ -385,11 +715,11 @@ const CanvasEditor = () => {
             newHeight = canvasDims.height;
             newWidth = canvasDims.height * imageAspect;
           }
-          
+
           // Center the image
           const x = (canvasDims.width - newWidth) / 2;
           const y = (canvasDims.height - newHeight) / 2;
-          
+
           updateElement(activeSceneId, selectedElement.id, {
             ...patch,
             width: newWidth,
@@ -474,7 +804,12 @@ const CanvasEditor = () => {
                       height={height}
                       fillLinearGradientStartPoint={{ x: 0, y: 0 }}
                       fillLinearGradientEndPoint={{ x: width, y: height }}
-                      fillLinearGradientColorStops={[0, "#f8fafc", 1, "#ffffff"]}
+                      fillLinearGradientColorStops={[
+                        0,
+                        "#f8fafc",
+                        1,
+                        "#ffffff",
+                      ]}
                     />
                     {[...Array(Math.ceil(width / 40))].map((_, idx) => (
                       <Rect

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import SceneItem from "./SceneItem";
+import AIModal from "./AIModal";
 import { useEditorStore } from "@/store/editorStore";
 
 type ScenesPanelProps = {
@@ -17,7 +18,8 @@ type ScenesPanelProps = {
   onToggle?: () => void;
 };
 
-const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
+const ScenesPanel = ({ isCollapsed = false, onToggle, onGenerateScriptClick }: ScenesPanelProps) => {
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const {
     scenes,
     activeSceneId,
@@ -25,6 +27,7 @@ const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
     addScene,
     duplicateScene,
     deleteScene,
+    updateSceneScript,
   } = useEditorStore((state) => ({
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
@@ -32,6 +35,7 @@ const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
     addScene: state.addScene,
     duplicateScene: state.duplicateScene,
     deleteScene: state.deleteScene,
+    updateSceneScript: state.updateSceneScript,
   }));
 
   const totalDuration = useMemo(
@@ -66,7 +70,8 @@ const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-full border border-canvas-border px-3 py-1 text-xs font-medium text-slate-600 hover:border-brand-start hover:text-slate-900"
+            onClick={() => setIsAIModalOpen(true)}
+            className="inline-flex items-center gap-1 rounded-full border border-canvas-border px-3 py-1 text-xs font-medium text-slate-600 transition hover:border-brand-start hover:text-slate-900"
           >
             <Sparkles className="h-3.5 w-3.5 text-brand-start" aria-hidden />
             AI
@@ -95,10 +100,12 @@ const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
             title={scene.title}
             duration={scene.duration}
             thumbnail={scene.thumbnail}
+            script={scene.script}
             isActive={scene.id === activeSceneId}
             onSelect={() => setActiveScene(scene.id)}
             onDuplicate={() => duplicateScene(scene.id)}
             onDelete={() => deleteScene(scene.id)}
+            onScriptUpdate={(script) => updateSceneScript(scene.id, script)}
           />
         ))}
         <motion.button
@@ -125,6 +132,17 @@ const ScenesPanel = ({ isCollapsed = false, onToggle }: ScenesPanelProps) => {
           </button>
         </div>
       </div>
+
+      <AIModal 
+        isOpen={isAIModalOpen} 
+        onClose={() => setIsAIModalOpen(false)}
+        onGenerateScriptClick={() => {
+          setIsAIModalOpen(false);
+          if (onGenerateScriptClick) {
+            onGenerateScriptClick();
+          }
+        }}
+      />
     </aside>
   );
 };

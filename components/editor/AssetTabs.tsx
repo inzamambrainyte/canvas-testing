@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, Play, Pause, Volume2, VolumeX } from "lucide-react";
 import Image from "next/image";
 import AssetCard from "./AssetCard";
 import { assetLibrary, brandKit } from "@/lib/mockData";
@@ -71,18 +71,50 @@ interface PexelsResponse {
   next_page?: string;
 }
 
+interface FreesoundSound {
+  id: number;
+  name: string;
+  username: string;
+  duration: number;
+  previews: {
+    "preview-hq-mp3"?: string;
+    "preview-lq-mp3"?: string;
+    "preview-hq-ogg"?: string;
+    "preview-lq-ogg"?: string;
+  };
+  images?: {
+    waveform_m?: string;
+    waveform_l?: string;
+    spectral_m?: string;
+    spectral_l?: string;
+  };
+}
+
+interface FreesoundResponse {
+  count: number;
+  next?: string;
+  previous?: string;
+  results: FreesoundSound[];
+}
+
 const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
   const [activeTab, setActiveTab] = useState<AssetCategory>("text");
   const [searchQuery, setSearchQuery] = useState("");
   const [pexelsImages, setPexelsImages] = useState<AssetItem[]>([]);
   const [pexelsVideos, setPexelsVideos] = useState<AssetItem[]>([]);
+  const [freesoundAudios, setFreesoundAudios] = useState<AssetItem[]>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(false);
   const [isLoadingVideos, setIsLoadingVideos] = useState(false);
+  const [isLoadingAudios, setIsLoadingAudios] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [imagesError, setImagesError] = useState<string | null>(null);
   const [videosError, setVideosError] = useState<string | null>(null);
+  const [audiosError, setAudiosError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [audioVolumes, setAudioVolumes] = useState<Record<string, number>>({});
+  const audioRefs = useRef<Record<string, HTMLAudioElement>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchPexelsImages = useCallback(
@@ -205,7 +237,72 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
     []
   );
 
-  // Fetch images/videos when tab is activated
+  const fetchFreesoundAudios = useCallback(
+    async (query: string, page: number = 1, append: boolean = false) => {
+      if (append) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoadingAudios(true);
+        setAudiosError(null);
+      }
+
+      try {
+        const pageSize = page === 1 ? 10 : 20; // First page: 10, subsequent: 20
+        const response = await fetch(
+          `/api/freesound?query=${encodeURIComponent(query || "nature")}&page=${page}&page_size=${pageSize}`
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to fetch audio");
+        }
+
+        const data: FreesoundResponse = await response.json();
+
+        // Transform Freesound sounds to AssetItem format
+        const transformedAudios: AssetItem[] = (data.results || []).map((sound) => {
+          const previewUrl =
+            sound.previews["preview-hq-mp3"] ||
+            sound.previews["preview-lq-mp3"] ||
+            sound.previews["preview-hq-ogg"] ||
+            sound.previews["preview-lq-ogg"] ||
+            "";
+
+          return {
+            id: `freesound-${sound.id}`,
+            title: sound.name,
+            description: `${sound.username} • ${Math.round(sound.duration)}s`,
+            preview: sound.images?.waveform_m || sound.images?.waveform_l,
+            meta: "Freesound",
+            assetUrl: previewUrl,
+          };
+        });
+
+        if (append) {
+          setFreesoundAudios((prev) => [...prev, ...transformedAudios]);
+        } else {
+          setFreesoundAudios(transformedAudios);
+        }
+
+        setHasMore(!!data.next);
+        setCurrentPage(page);
+      } catch (error) {
+        console.error("Error fetching Freesound audio:", error);
+        setAudiosError(
+          error instanceof Error ? error.message : "Failed to load audio"
+        );
+        if (!append) {
+          setFreesoundAudios([]);
+        }
+      } finally {
+        setIsLoadingAudios(false);
+        setIsLoadingMore(false);
+      }
+    },
+    []
+  );
+
+  // Fetch images/videos/audio when tab is activated
   useEffect(() => {
     if (activeTab === "images") {
       setCurrentPage(1);
@@ -215,17 +312,29 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
       setCurrentPage(1);
       setHasMore(true);
       fetchPexelsVideos(searchQuery, 1, false);
+    } else if (activeTab === "audio") {
+      setCurrentPage(1);
+      setHasMore(true);
+      fetchFreesoundAudios(searchQuery, 1, false);
     } else {
       setPexelsImages([]);
       setPexelsVideos([]);
+      setFreesoundAudios([]);
       setImagesError(null);
       setVideosError(null);
+      setAudiosError(null);
       setCurrentPage(1);
       setHasMore(true);
+      // Stop all playing audio when switching tabs
+      Object.values(audioRefs.current).forEach((audio) => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+      setPlayingAudioId(null);
     }
-  }, [activeTab, fetchPexelsImages, fetchPexelsVideos]);
+  }, [activeTab, fetchPexelsImages, fetchPexelsVideos, fetchFreesoundAudios]);
 
-  // Debounce search for Images/Videos tabs
+  // Debounce search for Images/Videos/Audio tabs
   useEffect(() => {
     if (activeTab === "images") {
       const timeoutId = setTimeout(() => {
@@ -243,13 +352,26 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
       }, 500); // 500ms debounce
 
       return () => clearTimeout(timeoutId);
+    } else if (activeTab === "audio") {
+      const timeoutId = setTimeout(() => {
+        setCurrentPage(1);
+        setHasMore(true);
+        fetchFreesoundAudios(searchQuery, 1, false);
+      }, 500); // 500ms debounce
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [searchQuery, activeTab, fetchPexelsImages, fetchPexelsVideos]);
+  }, [searchQuery, activeTab, fetchPexelsImages, fetchPexelsVideos, fetchFreesoundAudios]);
 
   // Infinite scroll handler
   useEffect(() => {
-    const isMediaTab = activeTab === "images" || activeTab === "videos";
-    const isLoading = activeTab === "images" ? isLoadingImages : isLoadingVideos;
+    const isMediaTab = activeTab === "images" || activeTab === "videos" || activeTab === "audio";
+    const isLoading =
+      activeTab === "images"
+        ? isLoadingImages
+        : activeTab === "videos"
+        ? isLoadingVideos
+        : isLoadingAudios;
 
     if (!isMediaTab || !hasMore || isLoadingMore || isLoading) {
       return;
@@ -267,6 +389,8 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
             fetchPexelsImages(searchQuery, currentPage + 1, true);
           } else if (activeTab === "videos") {
             fetchPexelsVideos(searchQuery, currentPage + 1, true);
+          } else if (activeTab === "audio") {
+            fetchFreesoundAudios(searchQuery, currentPage + 1, true);
           }
         }
       }
@@ -280,17 +404,71 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
     isLoadingMore,
     isLoadingImages,
     isLoadingVideos,
+    isLoadingAudios,
     currentPage,
     searchQuery,
     fetchPexelsImages,
     fetchPexelsVideos,
+    fetchFreesoundAudios,
   ]);
+
+  // Audio player controls
+  const togglePlayPause = (audioId: string, audioUrl: string) => {
+    if (playingAudioId === audioId) {
+      // Pause current audio
+      const audio = audioRefs.current[audioId];
+      if (audio) {
+        audio.pause();
+      }
+      setPlayingAudioId(null);
+    } else {
+      // Stop any currently playing audio
+      if (playingAudioId) {
+        const currentAudio = audioRefs.current[playingAudioId];
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+        }
+      }
+
+      // Play new audio
+      let audio = audioRefs.current[audioId];
+      if (!audio) {
+        audio = new Audio(audioUrl);
+        audioRefs.current[audioId] = audio;
+        audio.addEventListener("ended", () => {
+          setPlayingAudioId(null);
+        });
+      }
+
+      const volume = audioVolumes[audioId] ?? 1;
+      audio.volume = volume;
+      audio.play();
+      setPlayingAudioId(audioId);
+    }
+  };
+
+  const toggleMute = (audioId: string) => {
+    const audio = audioRefs.current[audioId];
+    if (!audio) return;
+
+    const currentVolume = audioVolumes[audioId] ?? 1;
+    if (currentVolume > 0) {
+      setAudioVolumes((prev) => ({ ...prev, [audioId]: 0 }));
+      audio.volume = 0;
+    } else {
+      setAudioVolumes((prev) => ({ ...prev, [audioId]: 1 }));
+      audio.volume = 1;
+    }
+  };
 
   const filteredItems =
     activeTab === "images"
       ? pexelsImages
       : activeTab === "videos"
       ? pexelsVideos
+      : activeTab === "audio"
+      ? freesoundAudios
       : assetLibrary[activeTab].filter(
           (item) =>
             item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -328,7 +506,105 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
         />
       </label>
 
-      {(activeTab === "images" || activeTab === "videos") ? (
+      {activeTab === "audio" ? (
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          ref={scrollContainerRef}
+          className="mt-4 flex-1 overflow-y-auto pb-6"
+        >
+          {isLoadingAudios && freesoundAudios.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-canvas-border/80 bg-white/60 px-4 py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-brand-start" />
+              <p className="mt-3 text-sm text-slate-500">Loading audio...</p>
+            </div>
+          )}
+
+          {!isLoadingAudios && audiosError && freesoundAudios.length === 0 && (
+            <div className="rounded-3xl border border-dashed border-red-200 bg-red-50/60 px-4 py-12 text-center text-sm text-red-600">
+              {audiosError}
+            </div>
+          )}
+
+          {!isLoadingAudios &&
+            !audiosError &&
+            freesoundAudios.length === 0 && (
+              <div className="rounded-3xl border border-dashed border-canvas-border/80 bg-white/60 px-4 py-12 text-center text-sm text-slate-500">
+                No audio found. Try another search term.
+              </div>
+            )}
+
+          {freesoundAudios.length > 0 && (
+            <div className="space-y-2">
+              {freesoundAudios.map((item) => {
+                const isPlaying = playingAudioId === item.id;
+                const isMuted = (audioVolumes[item.id] ?? 1) === 0;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="group flex items-center gap-3 rounded-2xl border border-canvas-border bg-white px-4 py-3 shadow-[0_4px_16px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-brand-start/40"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        item.assetUrl && togglePlayPause(item.id, item.assetUrl)
+                      }
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-brand-start to-brand-end text-white shadow-sm transition hover:scale-105"
+                      disabled={!item.assetUrl}
+                    >
+                      {isPlaying ? (
+                        <Pause className="h-4 w-4" />
+                      ) : (
+                        <Play className="h-4 w-4 ml-0.5" />
+                      )}
+                    </button>
+
+                    <div className="flex flex-1 flex-col min-w-0">
+                      <span className="text-sm font-semibold text-slate-900 truncate">
+                        {item.title}
+                      </span>
+                      {item.description && (
+                        <span className="text-xs text-slate-500 truncate">
+                          {item.description}
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleMute(item.id)}
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+                      disabled={!item.assetUrl || playingAudioId !== item.id}
+                    >
+                      {isMuted ? (
+                        <VolumeX className="h-4 w-4" />
+                      ) : (
+                        <Volume2 className="h-4 w-4" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => item.assetUrl && onAssetClick(item, activeTab)}
+                      className="ml-2 rounded-xl border border-canvas-border bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand-start hover:text-brand-start"
+                    >
+                      Add
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {isLoadingMore && (
+            <div className="mt-4 flex justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-brand-start" />
+            </div>
+          )}
+        </motion.div>
+      ) : (activeTab === "images" || activeTab === "videos") ? (
         <motion.div
           key={activeTab}
           initial={{ opacity: 0, y: 8 }}

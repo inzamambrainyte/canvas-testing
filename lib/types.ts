@@ -1,6 +1,6 @@
 export type AspectRatio = "16:9" | "9:16" | "1:1";
 
-export type CanvasElementType = "text" | "shape" | "image" | "video";
+export type CanvasElementType = "text" | "shape" | "image" | "video" | "audio";
 
 export type ImageFitMode = "cover" | "contain" | "fill" | "fit-to-screen";
 

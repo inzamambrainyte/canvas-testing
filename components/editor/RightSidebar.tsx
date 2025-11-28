@@ -79,7 +79,7 @@ const generateElementFromAsset = (
       };
     case "audio":
       return {
-        type: "shape",
+        type: "audio",
         label: item.title,
         x: 120,
         y: 360,
@@ -90,6 +90,7 @@ const generateElementFromAsset = (
         cornerRadius: 18,
         strokeWidth: 0,
         locked: false,
+        assetUrl: item.assetUrl || item.preview || "",
       };
     case "brand":
     default:

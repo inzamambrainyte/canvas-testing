@@ -18,9 +18,12 @@ type EditorStore = {
   history: Record<string, HistoryState>;
   setActiveScene: (sceneId: string) => void;
   addScene: () => void;
+  addScenes: (scenes: Omit<Scene, "id" | "elements">[]) => void;
+  createNewProject: (scenes: Omit<Scene, "id" | "elements">[]) => void;
   duplicateScene: (sceneId: string) => void;
   deleteScene: (sceneId: string) => void;
   reorderScenes: (sceneIds: string[]) => void;
+  updateSceneScript: (sceneId: string, script: string) => void;
   setSelectedElement: (elementId: string | null) => void;
   updateElement: (
     sceneId: string,
@@ -73,7 +76,10 @@ const saveToHistory = (
 };
 
 // Helper function to get current elements for a scene
-const getCurrentElements = (state: EditorStore, sceneId: string): CanvasElement[] => {
+const getCurrentElements = (
+  state: EditorStore,
+  sceneId: string
+): CanvasElement[] => {
   const scene = state.scenes.find((s) => s.id === sceneId);
   return scene?.elements ?? [];
 };
@@ -94,6 +100,41 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const nextIndex = state.scenes.length + 1;
           return { scenes: [...state.scenes, generateScene(nextIndex)] };
+        }),
+      addScenes: (newScenes) =>
+        set((state) => {
+          const scenesToAdd: Scene[] = newScenes.map((sceneData, index) => ({
+            ...sceneData,
+            id: `scene-${Date.now()}-${index}`,
+            elements: [],
+            fonts: [],
+            media: [],
+            thumbnail:
+              "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60",
+          }));
+          const updatedScenes = [...state.scenes, ...scenesToAdd];
+          return {
+            scenes: updatedScenes,
+            activeSceneId: scenesToAdd[0]?.id ?? state.activeSceneId,
+          };
+        }),
+      createNewProject: (newScenes) =>
+        set((state) => {
+          const scenesToCreate: Scene[] = newScenes.map((sceneData, index) => ({
+            ...sceneData,
+            id: `scene-${Date.now()}-${index}`,
+            elements: [],
+            fonts: [],
+            media: [],
+            thumbnail:
+              "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60",
+          }));
+          return {
+            scenes: scenesToCreate,
+            activeSceneId: scenesToCreate[0]?.id ?? "",
+            selectedElementId: null,
+            history: {}, // Reset history for new project
+          };
         }),
       duplicateScene: (sceneId) =>
         set((state) => {
@@ -122,12 +163,19 @@ export const useEditorStore = create<EditorStore>()(
             .filter((scene): scene is Scene => Boolean(scene));
           return { scenes: mapped };
         }),
+      updateSceneScript: (sceneId, script) =>
+        set((state) => {
+          const scenes = state.scenes.map((scene) =>
+            scene.id === sceneId ? { ...scene, script } : scene
+          );
+          return { scenes };
+        }),
       setSelectedElement: (elementId) => set({ selectedElementId: elementId }),
       updateElement: (sceneId, elementId, patch) =>
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             return {
@@ -143,7 +191,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             return {
@@ -157,7 +205,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             const filteredElements = scene.elements.filter(
@@ -181,7 +229,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             return {
@@ -199,7 +247,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             const index = scene.elements.findIndex((el) => el.id === elementId);
@@ -217,7 +265,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             const index = scene.elements.findIndex((el) => el.id === elementId);
@@ -235,7 +283,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             const index = scene.elements.findIndex((el) => el.id === elementId);
@@ -251,7 +299,7 @@ export const useEditorStore = create<EditorStore>()(
         set((state) => {
           const currentElements = getCurrentElements(state, sceneId);
           const history = saveToHistory(state, sceneId, currentElements);
-          
+
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
             const index = scene.elements.findIndex((el) => el.id === elementId);
@@ -274,7 +322,10 @@ export const useEditorStore = create<EditorStore>()(
           const currentElements = getCurrentElements(state, sceneId);
           const previousState = history.undo[history.undo.length - 1];
           const newUndoStack = history.undo.slice(0, -1);
-          const newRedoStack = [...history.redo, JSON.parse(JSON.stringify(currentElements))];
+          const newRedoStack = [
+            ...history.redo,
+            JSON.parse(JSON.stringify(currentElements)),
+          ];
 
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
@@ -303,7 +354,10 @@ export const useEditorStore = create<EditorStore>()(
           const currentElements = getCurrentElements(state, sceneId);
           const nextState = history.redo[history.redo.length - 1];
           const newRedoStack = history.redo.slice(0, -1);
-          const newUndoStack = [...history.undo, JSON.parse(JSON.stringify(currentElements))];
+          const newUndoStack = [
+            ...history.undo,
+            JSON.parse(JSON.stringify(currentElements)),
+          ];
 
           const scenes = state.scenes.map((scene) => {
             if (scene.id !== sceneId) return scene;
