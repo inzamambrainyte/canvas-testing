@@ -10,13 +10,11 @@ type GenerateScriptModalProps = {
   onClose: () => void;
 };
 
-const GenerateScriptModal = ({
-  isOpen,
-  onClose,
-}: GenerateScriptModalProps) => {
+const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const [currentStep, setCurrentStep] = useState<number>(1);
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<string>("16:9");
+  const [selectedAspectRatio, setSelectedAspectRatio] =
+    useState<string>("16:9");
   const [prompt, setPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +41,6 @@ const GenerateScriptModal = ({
       document.body.style.overflow = "unset";
     };
   }, [isOpen, onClose]);
-
 
   const aspectRatios = [
     { label: "16:9", value: "16:9", icon: "📺" },
@@ -134,7 +131,7 @@ const GenerateScriptModal = ({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-[70] flex items-center justify-center"
           onMouseDown={(e) => {
             // Only close if clicking directly on the container (backdrop)
@@ -152,7 +149,7 @@ const GenerateScriptModal = ({
           />
 
           {/* Modal */}
-          <div 
+          <div
             className="relative z-10 w-full max-w-lg p-4"
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -202,15 +199,13 @@ const GenerateScriptModal = ({
                         : "bg-slate-200 text-slate-500"
                     }`}
                   >
-                    {currentStep > 1 ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      "1"
-                    )}
+                    {currentStep > 1 ? <Check className="h-4 w-4" /> : "1"}
                   </div>
                   <div
                     className={`h-1 flex-1 rounded ${
-                      currentStep >= 2 ? "bg-gradient-to-r from-purple-500 to-pink-500" : "bg-slate-200"
+                      currentStep >= 2
+                        ? "bg-gradient-to-r from-purple-500 to-pink-500"
+                        : "bg-slate-200"
                     }`}
                   />
                   <div
@@ -246,7 +241,11 @@ const GenerateScriptModal = ({
                               selectedAspectRatio === ratio.value
                                 ? "border-brand-start bg-gradient-to-br from-brand-start/10 to-brand-end/10 shadow-lg"
                                 : "border-canvas-border bg-white hover:border-brand-start hover:shadow-lg"
-                            } ${isGenerating ? "opacity-50 cursor-not-allowed" : ""}`}
+                            } ${
+                              isGenerating
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
+                            }`}
                           >
                             <div className="text-3xl mb-2">{ratio.icon}</div>
                             <div className="text-sm font-bold text-slate-900">
@@ -370,4 +369,3 @@ const GenerateScriptModal = ({
 };
 
 export default GenerateScriptModal;
-
