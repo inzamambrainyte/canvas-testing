@@ -30,7 +30,50 @@ export interface CanvasElement {
   cropY?: number;
   cropWidth?: number;
   cropHeight?: number;
+  animations?: Animation[];
 }
+
+export interface Animation {
+  id: string;
+  type: AnimationType;
+  duration: number; // in seconds
+  delay: number; // in seconds
+  easing: EasingType;
+  direction?: "in" | "out";
+  from?: {
+    x?: number;
+    y?: number;
+    scale?: number;
+    rotation?: number;
+    opacity?: number;
+  };
+  to?: {
+    x?: number;
+    y?: number;
+    scale?: number;
+    rotation?: number;
+    opacity?: number;
+  };
+}
+
+export type AnimationType =
+  | "fade"
+  | "slide"
+  | "zoom"
+  | "bounce"
+  | "rotate"
+  | "pulse"
+  | "shake"
+  | "move"
+  | "scale";
+
+export type EasingType =
+  | "linear"
+  | "ease-in"
+  | "ease-out"
+  | "ease-in-out"
+  | "bounce"
+  | "elastic";
 
 export interface Scene {
   id: string;
@@ -51,7 +94,8 @@ export type AssetCategory =
   | "images"
   | "videos"
   | "audio"
-  | "brand";
+  | "brand"
+  | "animations";
 
 export interface AssetItem {
   id: string;

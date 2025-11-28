@@ -8,9 +8,12 @@ import {
   Text as KonvaText,
   Circle,
   Image as KonvaImage,
+  Group,
 } from "react-konva";
+import type Konva from "konva";
 import { useEditorStore } from "@/store/editorStore";
 import type { CanvasElement } from "@/lib/types";
+import { animateElement } from "@/lib/animations";
 
 const ratioDimensions = {
   "16:9": { width: 960, height: 540 },
@@ -64,7 +67,8 @@ const CanvasImageNode = ({
     props.height = rest.height;
   }
 
-  return <KonvaImage {...props} image={image} />;
+  // Ensure id is passed through
+  return <KonvaImage {...props} image={image} id={rest.id} />;
 };
 
 const CanvasVideoNode = ({
@@ -228,6 +232,7 @@ const CanvasVideoNode = ({
       image={videoImage}
       cornerRadius={rest.cornerRadius ?? 0}
       opacity={rest.opacity ?? 1}
+      id={rest.id}
     />
   );
 };
@@ -246,8 +251,42 @@ const PreviewPage = () => {
 
   const { width, height } = ratioDimensions[aspectRatio];
 
+  const stageRef = useRef<Stage>(null);
+
+  // Play animations when preview loads
+  useEffect(() => {
+    if (!activeScene || !stageRef.current) return;
+
+    // Small delay to ensure all elements are rendered
+    const timeoutId = setTimeout(() => {
+      const stage = stageRef.current?.getStage();
+      if (!stage) return;
+
+      activeScene.elements.forEach((element) => {
+        if (!element.animations || element.animations.length === 0) return;
+
+        const node = stage.findOne(`#${element.id}`) as Konva.Node | undefined;
+        if (!node) {
+          console.warn(`Node not found for element ${element.id}`);
+          return;
+        }
+
+        // Play all animations for this element
+        // Each animation starts after its own delay (allowing simultaneous playback)
+        element.animations.forEach((animation) => {
+          setTimeout(() => {
+            animateElement(node!, animation);
+          }, animation.delay * 1000);
+        });
+      });
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [activeScene]);
+
   const renderElement = (element: CanvasElement) => {
     const baseProps = {
+      id: element.id, // Add ID for finding the node for animations
       key: element.id,
       x: element.x,
       y: element.y,
@@ -330,7 +369,7 @@ const PreviewPage = () => {
         <h1 className="mb-6 text-2xl font-bold text-slate-900">
           {activeScene?.title ?? "Preview"}
         </h1>
-        <Stage width={width} height={height}>
+        <Stage width={width} height={height} ref={stageRef}>
           <Layer>
             {activeScene?.elements.map((element) => renderElement(element))}
           </Layer>

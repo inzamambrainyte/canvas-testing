@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { mockScenes } from "@/lib/mockData";
-import type { AspectRatio, CanvasElement, Scene } from "@/lib/types";
+import type { AspectRatio, CanvasElement, Scene, Animation } from "@/lib/types";
 
 type HistoryState = {
   undo: CanvasElement[][];
@@ -82,6 +82,71 @@ const getCurrentElements = (
 ): CanvasElement[] => {
   const scene = state.scenes.find((s) => s.id === sceneId);
   return scene?.elements ?? [];
+};
+
+// Helper function to generate animations for background images
+// Returns a random selection of professional animations
+const generateBackgroundAnimations = (elementId: string): Animation[] => {
+  const baseId = elementId.replace("element-", "anim-");
+  let animCounter = 0;
+  
+  const createAnimId = () => `${baseId}-${animCounter++}`;
+
+  // Animation presets - using system's built-in animation logic
+  const animationPresets: Omit<Animation, "id">[] = [
+    // Fade In - Classic and smooth (0.8s)
+    {
+      type: "fade",
+      duration: 0.8,
+      delay: 0,
+      easing: "ease-out",
+      direction: "in",
+    },
+    // Zoom In - Ken Burns effect (1.2s)
+    {
+      type: "zoom",
+      duration: 1.2,
+      delay: 0,
+      easing: "ease-out",
+      direction: "in",
+    },
+    // Slide In - Smooth entrance (1.0s)
+    {
+      type: "slide",
+      duration: 1.0,
+      delay: 0,
+      easing: "ease-out",
+      direction: "in",
+    },
+    // Zoom In - Faster version (0.9s)
+    {
+      type: "zoom",
+      duration: 0.9,
+      delay: 0,
+      easing: "ease-in-out",
+      direction: "in",
+    },
+    // Fade In - Slower, more dramatic (1.5s)
+    {
+      type: "fade",
+      duration: 1.5,
+      delay: 0,
+      easing: "ease-out",
+      direction: "in",
+    },
+  ];
+
+  // Randomly select 1 animation (70% chance) or 2 animations (30% chance) for variety
+  const selectedCount = Math.random() < 0.3 ? 2 : 1;
+  const shuffled = [...animationPresets].sort(() => Math.random() - 0.5);
+  const selected = shuffled.slice(0, selectedCount);
+
+  // Add IDs and adjust delays if multiple animations
+  return selected.map((preset, index) => ({
+    ...preset,
+    id: createAnimId(),
+    delay: index === 0 ? 0 : 0.3, // Second animation starts slightly after first
+  }));
 };
 
 export const useEditorStore = create<EditorStore>()(
@@ -166,9 +231,15 @@ export const useEditorStore = create<EditorStore>()(
                   const photo = photos[0];
                   const imageUrl = photo.src.large2x || photo.src.large;
 
-                  // Create a background image element
+                  // Create element ID first
+                  const elementId = `element-${timestamp}-${i}-bg`;
+                  
+                  // Generate animations for the background image
+                  const animations = generateBackgroundAnimations(elementId);
+
+                  // Create a background image element with animations
                   const backgroundElement: CanvasElement = {
-                    id: `element-${timestamp}-${i}-bg`,
+                    id: elementId,
                     type: "image",
                     label: "Background",
                     x: 0,
@@ -178,6 +249,7 @@ export const useEditorStore = create<EditorStore>()(
                     assetUrl: imageUrl,
                     imageFit: "cover",
                     locked: false,
+                    animations: animations, // Add automatically generated animations
                   };
 
                   // Add element to the scene using the store's update mechanism

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Search, Loader2, Play, Pause, Volume2, VolumeX } from "lucide-react";
 import Image from "next/image";
 import AssetCard from "./AssetCard";
+import AnimationPanel from "./AnimationPanel";
 import { assetLibrary, brandKit } from "@/lib/mockData";
 import type { AssetCategory, AssetItem } from "@/lib/types";
 
@@ -15,6 +16,7 @@ const tabConfig: { id: AssetCategory; label: string }[] = [
   { id: "images", label: "Images" },
   { id: "videos", label: "Videos" },
   { id: "audio", label: "Audio" },
+  { id: "animations", label: "Animations" },
   { id: "brand", label: "Brand Kit" }
 ];
 
@@ -469,11 +471,13 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
       ? pexelsVideos
       : activeTab === "audio"
       ? freesoundAudios
-      : assetLibrary[activeTab].filter(
+      : activeTab === "animations"
+      ? [] // Animations tab uses AnimationPanel, not a list
+      : assetLibrary[activeTab]?.filter(
           (item) =>
             item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
             item.description?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        ) || [];
 
   return (
     <div className="flex h-full flex-col">
@@ -494,19 +498,25 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
         ))}
       </div>
 
-      <label className="mt-4 flex items-center gap-2 rounded-full border border-canvas-border bg-white/70 px-3 py-2 text-sm text-slate-500 focus-within:border-brand-start">
-        <Search className="h-4 w-4" aria-hidden />
-        <span className="sr-only">Search assets</span>
-        <input
-          type="search"
-          placeholder="Search library"
-          className="w-full bg-transparent outline-none placeholder:text-slate-400"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-        />
-      </label>
+      {activeTab !== "animations" && (
+        <label className="mt-4 flex items-center gap-2 rounded-full border border-canvas-border bg-white/70 px-3 py-2 text-sm text-slate-500 focus-within:border-brand-start">
+          <Search className="h-4 w-4" aria-hidden />
+          <span className="sr-only">Search assets</span>
+          <input
+            type="search"
+            placeholder="Search library"
+            className="w-full bg-transparent outline-none placeholder:text-slate-400"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+        </label>
+      )}
 
-      {activeTab === "audio" ? (
+      {activeTab === "animations" ? (
+        <div className="mt-4 flex-1 overflow-hidden">
+          <AnimationPanel />
+        </div>
+      ) : activeTab === "audio" ? (
         <motion.div
           key={activeTab}
           initial={{ opacity: 0, y: 8 }}

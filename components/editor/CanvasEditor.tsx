@@ -28,7 +28,9 @@ import clsx from "clsx";
 import CanvasToolbar from "./CanvasToolbar";
 import FloatingElementToolbar from "./FloatingElementToolbar";
 import { useEditorStore } from "@/store/editorStore";
-import type { CanvasElement } from "@/lib/types";
+import type { CanvasElement, Animation } from "@/lib/types";
+import { previewAnimation, playAllAnimations } from "@/lib/animations";
+import Konva from "konva";
 
 const ratioDimensions = {
   "16:9": { width: 960, height: 540 },
@@ -444,6 +446,44 @@ const CanvasEditor = () => {
       transformer.getLayer()?.batchDraw();
     }
   }, [selectedElementId, activeScene]);
+
+  // Handle animation preview
+  useEffect(() => {
+    const handlePreviewAnimation = (event: CustomEvent) => {
+      const { elementId, animation } = event.detail as {
+        elementId: string;
+        animation: Animation;
+      };
+
+      if (elementId !== selectedElementId || !stageRef.current) return;
+
+      const node = stageRef.current.findOne(`#${elementId}`);
+      if (node) {
+        previewAnimation(node as Konva.Node, animation);
+      }
+    };
+
+    const handlePlayAllAnimations = (event: CustomEvent) => {
+      const { elementId, animations } = event.detail as {
+        elementId: string;
+        animations: Animation[];
+      };
+
+      if (elementId !== selectedElementId || !stageRef.current) return;
+
+      const node = stageRef.current.findOne(`#${elementId}`);
+      if (node && animations.length > 0) {
+        playAllAnimations(node as Konva.Node, animations);
+      }
+    };
+
+    window.addEventListener("preview-animation", handlePreviewAnimation as EventListener);
+    window.addEventListener("play-all-animations", handlePlayAllAnimations as EventListener);
+    return () => {
+      window.removeEventListener("preview-animation", handlePreviewAnimation as EventListener);
+      window.removeEventListener("play-all-animations", handlePlayAllAnimations as EventListener);
+    };
+  }, [selectedElementId]);
 
   useEffect(() => {
     if (selectedElementId && editableElement) {
