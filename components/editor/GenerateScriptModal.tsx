@@ -91,17 +91,21 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
     }
   };
 
-  const handleConfirmScenes = () => {
+  const handleConfirmScenes = async () => {
     // Set the aspect ratio for the editor
-    setAspectRatio(selectedAspectRatio as "16:9" | "9:16" | "1:1");
+    const aspectRatio = selectedAspectRatio as "16:9" | "9:16" | "1:1";
+    setAspectRatio(aspectRatio);
 
-    // Create a new project with the generated scenes
-    createNewProject(
+    // Create a new project with the generated scenes (including keywords)
+    // This will automatically fetch and add media based on keywords
+    await createNewProject(
       generatedScenes.map((scene: any) => ({
         title: scene.title,
         script: scene.script,
         duration: scene.duration,
-      }))
+        keywords: scene.keywords || "",
+      })),
+      aspectRatio
     );
 
     // Close modal and reset form

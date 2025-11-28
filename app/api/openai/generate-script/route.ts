@@ -25,16 +25,22 @@ export async function POST(request: NextRequest) {
 1. A clear title
 2. A script/description (2-4 sentences)
 3. A suggested duration in seconds (3-10 seconds per scene)
+4. Suggested keywords for finding relevant images/videos (3-5 keywords as a comma-separated string)
 
 Format your response as a JSON object with a "scenes" property containing an array of scene objects. Each scene object should have:
 - title: string (e.g., "Introduction", "Main Content", "Conclusion")
 - script: string (the actual script text for this scene, 2-4 sentences)
 - duration: number (duration in seconds, between 3-10)
+- keywords: string (3-5 comma-separated keywords for image/video search, e.g., "nature, forest, trees, outdoor, landscape")
+
+The keywords should be specific and relevant to the scene content, suitable for searching stock photo/video libraries like Pexels.
 
 Return ONLY valid JSON, no markdown, no code blocks. Example format:
-{"scenes":[{"title":"Scene 1","script":"Welcome to our video...","duration":5},{"title":"Scene 2","script":"In this section...","duration":7}]}`;
+{"scenes":[{"title":"Scene 1","script":"Welcome to our video...","duration":5,"keywords":"introduction, welcome, greeting, friendly, warm"},{"title":"Scene 2","script":"In this section...","duration":7,"keywords":"nature, forest, trees, outdoor"}]}`;
 
-    const userPrompt = `Create a video script for: ${prompt}\n\nAspect Ratio: ${aspectRatio}\n\nGenerate ${aspectRatio === "16:9" ? "5-7" : aspectRatio === "9:16" ? "4-6" : "3-5"} scenes that work well for this format.`;
+    const userPrompt = `Create a video script for: ${prompt}\n\nAspect Ratio: ${aspectRatio}\n\nGenerate ${
+      aspectRatio === "16:9" ? "5-7" : aspectRatio === "9:16" ? "4-6" : "3-5"
+    } scenes that work well for this format.`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -94,6 +100,7 @@ Return ONLY valid JSON, no markdown, no code blocks. Example format:
       title: scene.title || `Scene ${index + 1}`,
       script: scene.script || scene.description || "",
       duration: Math.max(3, Math.min(10, scene.duration || 5)),
+      keywords: scene.keywords || scene.title || "",
     }));
 
     return NextResponse.json({
@@ -111,4 +118,3 @@ Return ONLY valid JSON, no markdown, no code blocks. Example format:
     );
   }
 }
-

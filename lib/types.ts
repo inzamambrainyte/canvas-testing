@@ -41,6 +41,7 @@ export interface Scene {
   fonts: string[];
   media: string[];
   elements: CanvasElement[];
+  keywords?: string;
 }
 
 export type AssetCategory =

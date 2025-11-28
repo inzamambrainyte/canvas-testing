@@ -19,7 +19,7 @@ type EditorStore = {
   setActiveScene: (sceneId: string) => void;
   addScene: () => void;
   addScenes: (scenes: Omit<Scene, "id" | "elements">[]) => void;
-  createNewProject: (scenes: Omit<Scene, "id" | "elements">[]) => void;
+  createNewProject: (scenes: Omit<Scene, "id" | "elements">[], aspectRatio?: AspectRatio) => Promise<void>;
   duplicateScene: (sceneId: string) => void;
   deleteScene: (sceneId: string) => void;
   reorderScenes: (sceneIds: string[]) => void;
@@ -118,24 +118,85 @@ export const useEditorStore = create<EditorStore>()(
             activeSceneId: scenesToAdd[0]?.id ?? state.activeSceneId,
           };
         }),
-      createNewProject: (newScenes) =>
-        set((state) => {
-          const scenesToCreate: Scene[] = newScenes.map((sceneData, index) => ({
-            ...sceneData,
-            id: `scene-${Date.now()}-${index}`,
-            elements: [],
-            fonts: [],
-            media: [],
-            thumbnail:
-              "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60",
-          }));
-          return {
-            scenes: scenesToCreate,
-            activeSceneId: scenesToCreate[0]?.id ?? "",
-            selectedElementId: null,
-            history: {}, // Reset history for new project
-          };
-        }),
+      createNewProject: async (newScenes, aspectRatio = "16:9") => {
+        const timestamp = Date.now();
+        const canvasDims = {
+          "16:9": { width: 960, height: 540 },
+          "9:16": { width: 540, height: 960 },
+          "1:1": { width: 720, height: 720 },
+        }[aspectRatio];
+
+        // Create scenes with initial empty elements
+        const scenesToCreate: Scene[] = newScenes.map((sceneData, index) => ({
+          ...sceneData,
+          id: `scene-${timestamp}-${index}`,
+          elements: [],
+          fonts: [],
+          media: [],
+          thumbnail:
+            "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=400&auto=format&fit=crop&q=60",
+        }));
+
+        // Set scenes first (synchronously)
+        set({
+          scenes: scenesToCreate,
+          activeSceneId: scenesToCreate[0]?.id ?? "",
+          selectedElementId: null,
+          history: {},
+          aspectRatio,
+        });
+
+        // Then, asynchronously fetch and add media for each scene
+        const state = get();
+        for (let i = 0; i < scenesToCreate.length; i++) {
+          const scene = scenesToCreate[i];
+          if (scene.keywords) {
+            try {
+              // Search Pexels for images using keywords
+              const keywords = scene.keywords.split(",").map((k) => k.trim()).join(" ");
+              const response = await fetch(
+                `/api/pexels?query=${encodeURIComponent(keywords)}&page=1&per_page=1&type=images`
+              );
+
+              if (response.ok) {
+                const data = await response.json();
+                const photos = data.photos || [];
+                
+                if (photos.length > 0) {
+                  const photo = photos[0];
+                  const imageUrl = photo.src.large2x || photo.src.large;
+
+                  // Create a background image element
+                  const backgroundElement: CanvasElement = {
+                    id: `element-${timestamp}-${i}-bg`,
+                    type: "image",
+                    label: "Background",
+                    x: 0,
+                    y: 0,
+                    width: canvasDims.width,
+                    height: canvasDims.height,
+                    assetUrl: imageUrl,
+                    imageFit: "cover",
+                    locked: false,
+                  };
+
+                  // Add element to the scene using the store's update mechanism
+                  const currentState = get();
+                  const updatedScenes = currentState.scenes.map((s) =>
+                    s.id === scene.id
+                      ? { ...s, elements: [...s.elements, backgroundElement] }
+                      : s
+                  );
+                  set({ scenes: updatedScenes });
+                }
+              }
+            } catch (error) {
+              console.error(`Error fetching media for scene ${scene.id}:`, error);
+              // Continue with other scenes even if one fails
+            }
+          }
+        }
+      },
       duplicateScene: (sceneId) =>
         set((state) => {
           const scene = state.scenes.find((s) => s.id === sceneId);
