@@ -357,7 +357,11 @@ const CanvasAudioNode = ({
   );
 };
 
-const CanvasEditor = () => {
+type CanvasEditorProps = {
+  onPFVClick?: () => void;
+};
+
+const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
   const {
     scenes,
     activeSceneId,
@@ -787,7 +791,7 @@ const CanvasEditor = () => {
 
   return (
     <section className="flex flex-1 flex-col">
-      <CanvasToolbar />
+      <CanvasToolbar onPFVClick={onPFVClick} />
       <div className="grid flex-1 grid-cols-[auto_360px] gap-4 px-6 py-4">
         <div className="flex flex-col">
           <div className="mb-3 flex items-center justify-between rounded-2xl border border-canvas-border bg-white/70 px-4 py-3">

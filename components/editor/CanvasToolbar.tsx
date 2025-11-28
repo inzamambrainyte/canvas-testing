@@ -10,6 +10,7 @@ import {
   Undo2,
   ZoomIn,
   ZoomOut,
+  Monitor,
 } from "lucide-react";
 import { useEditorStore } from "@/store/editorStore";
 import type { AspectRatio } from "@/lib/types";
@@ -20,7 +21,11 @@ const aspectRatios: { label: string; value: AspectRatio }[] = [
   { label: "1:1", value: "1:1" },
 ];
 
-const CanvasToolbar = () => {
+type CanvasToolbarProps = {
+  onPFVClick?: () => void;
+};
+
+const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
   const {
     aspectRatio,
     setAspectRatio,
@@ -153,6 +158,15 @@ const CanvasToolbar = () => {
         >
           <Play className="h-4 w-4" aria-hidden />
           Preview
+        </motion.button>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.97 }}
+          onClick={onPFVClick}
+          className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-start hover:bg-slate-50"
+        >
+          <Monitor className="h-4 w-4" aria-hidden />
+          PFV
         </motion.button>
         <button
           type="button"
