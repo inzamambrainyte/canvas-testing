@@ -75,6 +75,31 @@ export type EasingType =
   | "bounce"
   | "elastic";
 
+export interface Voiceover {
+  audioUrl: string;
+  duration: number;
+  voice: string; // Voice ID (provider-specific)
+  model?: string; // Model ID (provider-specific)
+  provider?: "openai" | "elevenlabs"; // TTS provider
+}
+
+export interface Caption {
+  id: string;
+  text: string;
+  startTime: number; // seconds
+  endTime: number; // seconds
+  x?: number; // Optional: custom position
+  y?: number; // Optional: custom position
+  style?: {
+    fontSize?: number;
+    fontFamily?: string;
+    fill?: string;
+    backgroundColor?: string;
+    padding?: number;
+    textAlign?: "left" | "center" | "right";
+  };
+}
+
 export interface Scene {
   id: string;
   title: string;
@@ -85,6 +110,8 @@ export interface Scene {
   media: string[];
   elements: CanvasElement[];
   keywords?: string;
+  voiceover?: Voiceover;
+  captions?: Caption[];
 }
 
 export type AssetCategory =

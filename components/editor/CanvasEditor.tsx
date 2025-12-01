@@ -481,11 +481,23 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
       }
     };
 
-    window.addEventListener("preview-animation", handlePreviewAnimation as EventListener);
-    window.addEventListener("play-all-animations", handlePlayAllAnimations as EventListener);
+    window.addEventListener(
+      "preview-animation",
+      handlePreviewAnimation as EventListener
+    );
+    window.addEventListener(
+      "play-all-animations",
+      handlePlayAllAnimations as EventListener
+    );
     return () => {
-      window.removeEventListener("preview-animation", handlePreviewAnimation as EventListener);
-      window.removeEventListener("play-all-animations", handlePlayAllAnimations as EventListener);
+      window.removeEventListener(
+        "preview-animation",
+        handlePreviewAnimation as EventListener
+      );
+      window.removeEventListener(
+        "play-all-animations",
+        handlePlayAllAnimations as EventListener
+      );
     };
   }, [selectedElementId]);
 

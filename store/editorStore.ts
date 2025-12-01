@@ -1,7 +1,15 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { mockScenes } from "@/lib/mockData";
-import type { AspectRatio, CanvasElement, Scene, Animation } from "@/lib/types";
+import type {
+  AspectRatio,
+  CanvasElement,
+  Scene,
+  Animation,
+  Voiceover,
+  Caption,
+} from "@/lib/types";
+import { apiClient } from "@/lib/api/client";
 
 type HistoryState = {
   undo: CanvasElement[][];
@@ -19,7 +27,11 @@ type EditorStore = {
   setActiveScene: (sceneId: string) => void;
   addScene: () => void;
   addScenes: (scenes: Omit<Scene, "id" | "elements">[]) => void;
-  createNewProject: (scenes: Omit<Scene, "id" | "elements">[], aspectRatio?: AspectRatio) => Promise<void>;
+  createNewProject: (
+    scenes: Omit<Scene, "id" | "elements">[],
+    aspectRatio?: AspectRatio,
+    ttsProvider?: "openai" | "elevenlabs"
+  ) => Promise<void>;
   duplicateScene: (sceneId: string) => void;
   deleteScene: (sceneId: string) => void;
   reorderScenes: (sceneIds: string[]) => void;
@@ -89,7 +101,7 @@ const getCurrentElements = (
 const generateBackgroundAnimations = (elementId: string): Animation[] => {
   const baseId = elementId.replace("element-", "anim-");
   let animCounter = 0;
-  
+
   const createAnimId = () => `${baseId}-${animCounter++}`;
 
   // Animation presets - using system's built-in animation logic
@@ -183,7 +195,11 @@ export const useEditorStore = create<EditorStore>()(
             activeSceneId: scenesToAdd[0]?.id ?? state.activeSceneId,
           };
         }),
-      createNewProject: async (newScenes, aspectRatio = "16:9") => {
+      createNewProject: async (
+        newScenes,
+        aspectRatio = "16:9",
+        ttsProvider = "openai"
+      ) => {
         const timestamp = Date.now();
         const canvasDims = {
           "16:9": { width: 960, height: 540 },
@@ -211,60 +227,277 @@ export const useEditorStore = create<EditorStore>()(
           aspectRatio,
         });
 
-        // Then, asynchronously fetch and add media for each scene
+        // Then, asynchronously fetch and add media, voiceover, and captions for each scene
         const state = get();
         for (let i = 0; i < scenesToCreate.length; i++) {
           const scene = scenesToCreate[i];
+          const sceneElements: CanvasElement[] = [];
+          let sceneVoiceover: Voiceover | undefined;
+          const sceneCaptions: Caption[] = [];
+
+          // 1. Fetch multiple images and videos based on keywords
           if (scene.keywords) {
             try {
-              // Search Pexels for images using keywords
-              const keywords = scene.keywords.split(",").map((k) => k.trim()).join(" ");
-              const response = await fetch(
-                `/api/pexels?query=${encodeURIComponent(keywords)}&page=1&per_page=1&type=images`
-              );
+              const keywords = scene.keywords
+                .split(",")
+                .map((k) => k.trim())
+                .join(" ");
 
-              if (response.ok) {
-                const data = await response.json();
-                const photos = data.photos || [];
-                
-                if (photos.length > 0) {
-                  const photo = photos[0];
-                  const imageUrl = photo.src.large2x || photo.src.large;
+              // Fetch multiple images (3-5 images)
+              const imagesResponse = (await apiClient.getImages(
+                keywords,
+                1,
+                5
+              )) as any;
+              const photos = imagesResponse.photos || [];
 
-                  // Create element ID first
-                  const elementId = `element-${timestamp}-${i}-bg`;
-                  
-                  // Generate animations for the background image
-                  const animations = generateBackgroundAnimations(elementId);
+              // Fetch videos (1-2 videos for short clips/animations)
+              const videosResponse = (await apiClient.getVideos(
+                keywords,
+                1,
+                2
+              )) as any;
+              const videos = videosResponse.videos || [];
 
-                  // Create a background image element with animations
-                  const backgroundElement: CanvasElement = {
-                    id: elementId,
-                    type: "image",
-                    label: "Background",
-                    x: 0,
-                    y: 0,
-                    width: canvasDims.width,
-                    height: canvasDims.height,
-                    assetUrl: imageUrl,
-                    imageFit: "cover",
-                    locked: false,
-                    animations: animations, // Add automatically generated animations
+              // Add background image (full screen, first image)
+              if (photos.length > 0) {
+                const bgPhoto = photos[0];
+                const bgImageUrl = bgPhoto.src.large2x || bgPhoto.src.large;
+                const bgElementId = `element-${timestamp}-${i}-bg`;
+
+                const backgroundElement: CanvasElement = {
+                  id: bgElementId,
+                  type: "image",
+                  label: "Background",
+                  x: 0,
+                  y: 0,
+                  width: canvasDims.width,
+                  height: canvasDims.height,
+                  assetUrl: bgImageUrl,
+                  imageFit: "cover",
+                  locked: false,
+                  opacity: 1,
+                  animations: generateBackgroundAnimations(bgElementId),
+                };
+
+                sceneElements.push(backgroundElement);
+              }
+
+              // Add additional images (2-4 more images, positioned as overlays)
+              const additionalImages = photos.slice(1, 5); // Get 2-4 more images
+              additionalImages.forEach((photo: any, imgIndex: number) => {
+                const imageUrl = photo.src.large2x || photo.src.large;
+                const elementId = `element-${timestamp}-${i}-img-${imgIndex}`;
+
+                // Position images in different areas of the canvas
+                const positions = [
+                  { x: canvasDims.width * 0.1, y: canvasDims.height * 0.1 }, // Top-left
+                  { x: canvasDims.width * 0.6, y: canvasDims.height * 0.15 }, // Top-right
+                  { x: canvasDims.width * 0.05, y: canvasDims.height * 0.5 }, // Middle-left
+                  { x: canvasDims.width * 0.55, y: canvasDims.height * 0.55 }, // Middle-right
+                ];
+
+                const position = positions[imgIndex] || { x: 100, y: 100 };
+                const imageSize = Math.min(
+                  canvasDims.width * 0.3,
+                  canvasDims.height * 0.3
+                );
+
+                const imageElement: CanvasElement = {
+                  id: elementId,
+                  type: "image",
+                  label: `Image ${imgIndex + 2}`,
+                  x: position.x,
+                  y: position.y,
+                  width: imageSize,
+                  height: imageSize,
+                  assetUrl: imageUrl,
+                  imageFit: "cover",
+                  locked: false,
+                  opacity: 0.9,
+                  cornerRadius: 12,
+                  animations: generateBackgroundAnimations(elementId),
+                };
+
+                sceneElements.push(imageElement);
+              });
+
+              // Add video clips (short clips/animations)
+              videos.forEach((video: any, vidIndex: number) => {
+                // Get the best quality video file
+                const videoFile =
+                  video.video_files?.find(
+                    (f: any) => f.quality === "hd" || f.quality === "sd"
+                  ) || video.video_files?.[0];
+
+                if (videoFile) {
+                  const elementId = `element-${timestamp}-${i}-vid-${vidIndex}`;
+
+                  // Position videos strategically
+                  const videoPositions = [
+                    {
+                      x: canvasDims.width * 0.5,
+                      y: canvasDims.height * 0.3,
+                      width: canvasDims.width * 0.4,
+                      height: canvasDims.height * 0.4,
+                    },
+                    {
+                      x: canvasDims.width * 0.1,
+                      y: canvasDims.height * 0.6,
+                      width: canvasDims.width * 0.35,
+                      height: canvasDims.height * 0.35,
+                    },
+                  ];
+
+                  const videoPos = videoPositions[vidIndex] || {
+                    x: canvasDims.width * 0.3,
+                    y: canvasDims.height * 0.3,
+                    width: canvasDims.width * 0.4,
+                    height: canvasDims.height * 0.4,
                   };
 
-                  // Add element to the scene using the store's update mechanism
-                  const currentState = get();
-                  const updatedScenes = currentState.scenes.map((s) =>
-                    s.id === scene.id
-                      ? { ...s, elements: [...s.elements, backgroundElement] }
-                      : s
-                  );
-                  set({ scenes: updatedScenes });
+                  const videoElement: CanvasElement = {
+                    id: elementId,
+                    type: "video",
+                    label: `Video Clip ${vidIndex + 1}`,
+                    x: videoPos.x,
+                    y: videoPos.y,
+                    width: videoPos.width,
+                    height: videoPos.height,
+                    assetUrl: videoFile.link,
+                    locked: false,
+                    opacity: 1,
+                    cornerRadius: 16,
+                    animations: generateBackgroundAnimations(elementId),
+                  };
+
+                  sceneElements.push(videoElement);
                 }
+              });
+            } catch (error) {
+              console.error(
+                `Error fetching media for scene ${scene.id}:`,
+                error
+              );
+            }
+          }
+
+          // 2. Generate voiceover using TTS (OpenAI or ElevenLabs)
+          if (scene.script) {
+            try {
+              // Use backend API client for TTS
+              const ttsResult = (await apiClient.generateTTS({
+                text: scene.script,
+                provider: ttsProvider,
+                ...(ttsProvider === "elevenlabs"
+                  ? {
+                      voice_id: "21m00Tcm4TlvDq8ikWAM",
+                      model_id: "eleven_monolingual_v1",
+                    }
+                  : {
+                      voice: "alloy",
+                      model: "tts-1",
+                    }),
+              })) as any;
+
+              if (ttsResult.success && ttsResult.audioUrl) {
+                // Store voiceover data
+                sceneVoiceover = {
+                  audioUrl: ttsResult.audioUrl,
+                  duration: ttsResult.duration,
+                  voice: ttsResult.voice || ttsResult.voice_id || "alloy",
+                  model: ttsResult.model || ttsResult.model_id || "tts-1",
+                  provider: ttsProvider,
+                };
+
+                // Create audio element for voiceover (hidden, plays automatically)
+                const voiceoverElement: CanvasElement = {
+                  id: `element-${timestamp}-${i}-voiceover`,
+                  type: "audio",
+                  label: "Voiceover",
+                  x: 0,
+                  y: canvasDims.height - 60, // Position at bottom
+                  width: canvasDims.width,
+                  height: 60,
+                  assetUrl: ttsResult.audioUrl,
+                  locked: true, // Lock voiceover by default
+                  opacity: 0, // Make it invisible on canvas
+                };
+                sceneElements.push(voiceoverElement);
+
+                // Create caption background
+                const captionBgElement: CanvasElement = {
+                  id: `element-${timestamp}-${i}-caption-bg`,
+                  type: "shape",
+                  label: "Caption Background",
+                  x: 0,
+                  y: canvasDims.height - 100, // Position above voiceover
+                  width: canvasDims.width,
+                  height: 40,
+                  fill: "#000000",
+                  opacity: 0.7,
+                  locked: true,
+                  cornerRadius: 0,
+                };
+                sceneElements.push(captionBgElement);
+
+                // Create caption text element
+                const captionTextElement: CanvasElement = {
+                  id: `element-${timestamp}-${i}-caption-text`,
+                  type: "text",
+                  label: "Caption Text",
+                  x: 0,
+                  y: canvasDims.height - 95, // Centered vertically in caption background
+                  width: canvasDims.width,
+                  height: 30,
+                  content: scene.script,
+                  fontFamily: "Inter",
+                  fontSize: 28,
+                  fill: "#FFFFFF",
+                  textAlign: "center",
+                  locked: true,
+                };
+                sceneElements.push(captionTextElement);
+
+                // For now, a single caption for the whole script duration
+                sceneCaptions.push({
+                  id: `caption-${timestamp}-${i}-0`,
+                  text: scene.script,
+                  startTime: 0,
+                  endTime: ttsResult.duration,
+                });
+              } else {
+                console.error(
+                  `Failed to generate voiceover for scene ${scene.id}:`,
+                  "TTS result missing audioUrl"
+                );
               }
             } catch (error) {
-              console.error(`Error fetching media for scene ${scene.id}:`, error);
-              // Continue with other scenes even if one fails
+              console.error(
+                `Error generating voiceover for scene ${scene.id}:`,
+                error
+              );
+              // Still add other elements even if voiceover fails
+              if (sceneElements.length > 0) {
+                const currentState = get();
+                const updatedScenes = currentState.scenes.map((s) =>
+                  s.id === scene.id
+                    ? { ...s, elements: [...s.elements, ...sceneElements] }
+                    : s
+                );
+                set({ scenes: updatedScenes });
+              }
+            }
+          } else {
+            // No script, just add image elements
+            if (sceneElements.length > 0) {
+              const currentState = get();
+              const updatedScenes = currentState.scenes.map((s) =>
+                s.id === scene.id
+                  ? { ...s, elements: [...s.elements, ...sceneElements] }
+                  : s
+              );
+              set({ scenes: updatedScenes });
             }
           }
         }

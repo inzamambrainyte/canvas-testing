@@ -8,6 +8,7 @@ import AssetCard from "./AssetCard";
 import AnimationPanel from "./AnimationPanel";
 import { assetLibrary, brandKit } from "@/lib/mockData";
 import type { AssetCategory, AssetItem } from "@/lib/types";
+import { apiClient } from "@/lib/api/client";
 
 const tabConfig: { id: AssetCategory; label: string }[] = [
   { id: "text", label: "Text" },
@@ -130,16 +131,11 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
 
       try {
         const perPage = page === 1 ? 10 : 20; // First page: 10, subsequent: 20
-        const response = await fetch(
-          `/api/pexels?query=${encodeURIComponent(query || "nature")}&page=${page}&per_page=${perPage}&type=images`
+        const data: PexelsResponse = await apiClient.getImages(
+          query || "nature",
+          page,
+          perPage
         );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || "Failed to fetch images");
-        }
-
-        const data: PexelsResponse = await response.json();
 
         // Transform Pexels photos to AssetItem format
         const transformedImages: AssetItem[] = (data.photos || []).map((photo) => ({
@@ -186,16 +182,11 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
 
       try {
         const perPage = page === 1 ? 10 : 20; // First page: 10, subsequent: 20
-        const response = await fetch(
-          `/api/pexels?query=${encodeURIComponent(query || "nature")}&page=${page}&per_page=${perPage}&type=videos`
+        const data: PexelsResponse = await apiClient.getVideos(
+          query || "nature",
+          page,
+          perPage
         );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || "Failed to fetch videos");
-        }
-
-        const data: PexelsResponse = await response.json();
 
         // Transform Pexels videos to AssetItem format
         const transformedVideos: AssetItem[] = (data.videos || []).map((video) => {
@@ -250,16 +241,11 @@ const AssetTabs = ({ onAssetClick }: AssetTabsProps) => {
 
       try {
         const pageSize = page === 1 ? 10 : 20; // First page: 10, subsequent: 20
-        const response = await fetch(
-          `/api/freesound?query=${encodeURIComponent(query || "nature")}&page=${page}&page_size=${pageSize}`
+        const data: FreesoundResponse = await apiClient.getAudio(
+          query || "nature",
+          page,
+          pageSize
         );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || "Failed to fetch audio");
-        }
-
-        const data: FreesoundResponse = await response.json();
 
         // Transform Freesound sounds to AssetItem format
         const transformedAudios: AssetItem[] = (data.results || []).map((sound) => {

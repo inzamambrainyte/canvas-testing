@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Transformer } from "react-konva";
+import {
+  Stage,
+  Layer,
+  Rect,
+  Text,
+  Group,
+  Image as KonvaImage,
+  Transformer,
+} from "react-konva";
 import type Konva from "konva";
 import type { CanvasElement } from "@/lib/types";
 
@@ -46,7 +54,7 @@ const CanvasStage = ({
   elements,
   selectedElementId,
   onSelectElement,
-  onUpdateElement
+  onUpdateElement,
 }: CanvasStageProps) => {
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
@@ -71,19 +79,22 @@ const CanvasStage = ({
     }
   }, [selectedElementId, safeElements]);
 
-  const handleStagePointer = (event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+  const handleStagePointer = (
+    event: Konva.KonvaEventObject<MouseEvent | TouchEvent>
+  ) => {
     if (event.target === event.target.getStage()) {
       onSelectElement(null);
     }
   };
 
-  const handleDragEnd = (elementId: string) => (event: Konva.KonvaEventObject<DragEvent>) => {
-    const node = event.target;
-    onUpdateElement(elementId, {
-      x: node.x(),
-      y: node.y()
-    });
-  };
+  const handleDragEnd =
+    (elementId: string) => (event: Konva.KonvaEventObject<DragEvent>) => {
+      const node = event.target;
+      onUpdateElement(elementId, {
+        x: node.x(),
+        y: node.y(),
+      });
+    };
 
   const handleTransformEnd =
     (elementId: string) => (event: Konva.KonvaEventObject<Event>) => {
@@ -96,7 +107,7 @@ const CanvasStage = ({
         y: node.y(),
         width: Math.max(12, node.width() * scaleX),
         height: Math.max(12, node.height() * scaleY),
-        rotation: node.rotation()
+        rotation: node.rotation(),
       });
 
       node.scaleX(1);
@@ -122,7 +133,7 @@ const CanvasStage = ({
       onDragEnd: handleDragEnd(element.id),
       onTransformEnd: handleTransformEnd(element.id),
       shadowBlur: selectedElementId === element.id ? 10 : 0,
-      shadowOpacity: selectedElementId === element.id ? 0.2 : 0
+      shadowOpacity: selectedElementId === element.id ? 0.2 : 0,
     };
 
     if (element.type === "text") {
@@ -149,7 +160,11 @@ const CanvasStage = ({
           height={element.height}
           fill={element.fill ?? "#c7d2fe"}
           opacity={element.opacity ?? 1}
-          cornerRadius={element.shapeVariant === "circle" ? Math.max(element.width, element.height) : 20}
+          cornerRadius={
+            element.shapeVariant === "circle"
+              ? Math.max(element.width, element.height)
+              : 20
+          }
         />
       );
     }
@@ -200,7 +215,7 @@ const CanvasStage = ({
       className="relative rounded-[32px] bg-gradient-to-br from-slate-50 to-white shadow-soft"
       style={{
         width: width * zoom,
-        height: height * zoom
+        height: height * zoom,
       }}
     >
       <Stage
@@ -268,5 +283,3 @@ const ImageNode = ({
 };
 
 export default CanvasStage;
-
-

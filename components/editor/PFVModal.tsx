@@ -221,7 +221,7 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage>(null);
   const animationRefs = useRef<Konva.Animation[]>([]);
-  
+
   const { scenes, aspectRatio } = useEditorStore((state) => ({
     scenes: state.scenes,
     aspectRatio: state.aspectRatio,
@@ -249,7 +249,10 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
     let sceneIndex = 0;
     let accumulatedTime = 0;
     for (let i = 0; i < scenes.length; i++) {
-      if (currentTime >= accumulatedTime && currentTime < accumulatedTime + scenes[i].duration) {
+      if (
+        currentTime >= accumulatedTime &&
+        currentTime < accumulatedTime + scenes[i].duration
+      ) {
         sceneIndex = i;
         break;
       }
@@ -320,7 +323,10 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
   useEffect(() => {
     let accumulatedTime = 0;
     for (let i = 0; i < scenes.length; i++) {
-      if (currentTime >= accumulatedTime && currentTime < accumulatedTime + scenes[i].duration) {
+      if (
+        currentTime >= accumulatedTime &&
+        currentTime < accumulatedTime + scenes[i].duration
+      ) {
         if (currentSceneIndex !== i) {
           setCurrentSceneIndex(i);
         }
@@ -329,7 +335,6 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
       accumulatedTime += scenes[i].duration;
     }
   }, [currentTime, scenes, currentSceneIndex]);
-
 
   // Reset element positions when scene changes and play animations
   useEffect(() => {
@@ -361,9 +366,8 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
         node.scaleY(1);
         node.rotation(element.rotation ?? 0);
         node.opacity(element.opacity ?? 1);
-
       });
-      
+
       // Force a redraw after reset
       stage.getLayers().forEach((layer) => layer.batchDraw());
 
@@ -373,9 +377,13 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
         currentScene.scene.elements.forEach((element) => {
           if (!element.animations || element.animations.length === 0) return;
 
-          const node = stage.findOne(`#${element.id}`) as Konva.Node | undefined;
+          const node = stage.findOne(`#${element.id}`) as
+            | Konva.Node
+            | undefined;
           if (!node) {
-            console.warn(`Node not found for element ${element.id} during animation`);
+            console.warn(
+              `Node not found for element ${element.id} during animation`
+            );
             return;
           }
 
@@ -386,9 +394,14 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
               try {
                 const anim = animateElement(node, animation);
                 animationRefs.current.push(anim);
-                console.log(`Playing animation ${animation.type} for element ${element.id}`);
+                console.log(
+                  `Playing animation ${animation.type} for element ${element.id}`
+                );
               } catch (error) {
-                console.error(`Error playing animation for element ${element.id}:`, error);
+                console.error(
+                  `Error playing animation for element ${element.id}:`,
+                  error
+                );
               }
             }, animation.delay * 1000);
           });
@@ -549,9 +562,7 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                     <h2 className="text-xl font-semibold text-slate-900">
                       PFV
                     </h2>
-                    <p className="text-sm text-slate-500">
-                      Preview Full Video
-                    </p>
+                    <p className="text-sm text-slate-500">Preview Full Video</p>
                   </div>
                 </div>
                 <button
@@ -570,9 +581,9 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                 <div className="relative mb-6 flex items-center justify-center rounded-2xl border border-canvas-border bg-black overflow-hidden">
                   {scenes.length > 0 && currentScene ? (
                     <div className="relative" style={{ width, height }}>
-                      <Stage 
-                        width={width} 
-                        height={height} 
+                      <Stage
+                        width={width}
+                        height={height}
                         ref={stageRef}
                         key={`stage-${currentScene.index}`} // Force re-render on scene change
                       >
@@ -623,7 +634,10 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                         if (e.buttons === 1) {
                           const rect = e.currentTarget.getBoundingClientRect();
                           const x = e.clientX - rect.left;
-                          const percentage = Math.max(0, Math.min(1, x / rect.width));
+                          const percentage = Math.max(
+                            0,
+                            Math.min(1, x / rect.width)
+                          );
                           handleSeek(percentage * totalDuration);
                         }
                       }}
@@ -631,7 +645,10 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                         setIsDragging(true);
                         const rect = e.currentTarget.getBoundingClientRect();
                         const x = e.clientX - rect.left;
-                        const percentage = Math.max(0, Math.min(1, x / rect.width));
+                        const percentage = Math.max(
+                          0,
+                          Math.min(1, x / rect.width)
+                        );
                         handleSeek(percentage * totalDuration);
                       }}
                       onMouseUp={() => setIsDragging(false)}
@@ -640,7 +657,9 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                       {/* Progress Bar */}
                       <div
                         className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-brand-start to-brand-end transition-all"
-                        style={{ width: `${(currentTime / totalDuration) * 100}%` }}
+                        style={{
+                          width: `${(currentTime / totalDuration) * 100}%`,
+                        }}
                       />
 
                       {/* Scene Markers */}
@@ -648,7 +667,8 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                         const sceneStart = sceneStartTimes[index];
                         const sceneEnd = sceneStartTimes[index + 1];
                         const startPercent = (sceneStart / totalDuration) * 100;
-                        const widthPercent = ((sceneEnd - sceneStart) / totalDuration) * 100;
+                        const widthPercent =
+                          ((sceneEnd - sceneStart) / totalDuration) * 100;
 
                         return (
                           <div
@@ -667,7 +687,9 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                       <div
                         className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow-lg border-2 border-brand-start transition-all"
                         style={{
-                          left: `calc(${(currentTime / totalDuration) * 100}% - 8px)`,
+                          left: `calc(${
+                            (currentTime / totalDuration) * 100
+                          }% - 8px)`,
                         }}
                       />
                     </div>
@@ -677,12 +699,16 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
                       <div className="mt-3 relative h-6">
                         {scenes.map((scene, index) => {
                           const sceneStart = sceneStartTimes[index];
-                          const startPercent = (sceneStart / totalDuration) * 100;
+                          const startPercent =
+                            (sceneStart / totalDuration) * 100;
                           return (
                             <div
                               key={scene.id}
                               className="absolute"
-                              style={{ left: `${startPercent}%`, transform: 'translateX(-50%)' }}
+                              style={{
+                                left: `${startPercent}%`,
+                                transform: "translateX(-50%)",
+                              }}
                             >
                               <div className="flex flex-col items-center">
                                 <div className="h-1.5 w-0.5 bg-slate-400 mb-1" />
@@ -707,4 +733,3 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
 };
 
 export default PFVModal;
-

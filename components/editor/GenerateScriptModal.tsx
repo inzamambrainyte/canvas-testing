@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Wand2, Loader2, ChevronLeft, Check } from "lucide-react";
+import { X, Wand2, Loader2, ChevronLeft, Check, Volume2, Sparkles } from "lucide-react";
 import { useEditorStore } from "@/store/editorStore";
+import { apiClient } from "@/lib/api/client";
 
 type GenerateScriptModalProps = {
   isOpen: boolean;
@@ -15,6 +16,7 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [selectedAspectRatio, setSelectedAspectRatio] =
     useState<string>("16:9");
+  const [selectedTTSProvider, setSelectedTTSProvider] = useState<"openai" | "elevenlabs">("openai");
   const [prompt, setPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,23 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
     { label: "1:1", value: "1:1", icon: "⬜" },
   ];
 
+  const ttsProviders = [
+    {
+      value: "openai" as const,
+      label: "OpenAI",
+      description: "Cost-effective, good quality",
+      icon: Sparkles,
+      color: "from-purple-500 to-pink-500",
+    },
+    {
+      value: "elevenlabs" as const,
+      label: "ElevenLabs",
+      description: "Premium quality, natural voices",
+      icon: Volume2,
+      color: "from-blue-500 to-cyan-500",
+    },
+  ];
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       setError("Please enter a script prompt");
@@ -58,26 +77,14 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
     setError(null);
 
     try {
-      const response = await fetch("/api/openai/generate-script", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          aspectRatio: selectedAspectRatio,
-        }),
-      });
+      const result = await apiClient.generateScript(
+        prompt.trim(),
+        selectedAspectRatio as "16:9" | "9:16" | "1:1"
+      );
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate script");
-      }
-
-      if (data.success && data.scenes) {
+      if (result.success && result.scenes) {
         // Store generated scenes and move to step 2
-        setGeneratedScenes(data.scenes);
+        setGeneratedScenes(result.scenes);
         setCurrentStep(2);
         setError(null);
       } else {
@@ -97,7 +104,7 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
     setAspectRatio(aspectRatio);
 
     // Create a new project with the generated scenes (including keywords)
-    // This will automatically fetch and add media based on keywords
+    // This will automatically fetch and add media, voiceover, and captions based on keywords
     await createNewProject(
       generatedScenes.map((scene: any) => ({
         title: scene.title,
@@ -105,7 +112,8 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
         duration: scene.duration,
         keywords: scene.keywords || "",
       })),
-      aspectRatio
+      aspectRatio,
+      selectedTTSProvider // Pass the selected TTS provider
     );
 
     // Close modal and reset form
@@ -118,6 +126,7 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
     setCurrentStep(1);
     setGeneratedScenes([]);
     setSelectedAspectRatio("16:9");
+    setSelectedTTSProvider("openai");
     onClose();
   };
 
@@ -258,6 +267,62 @@ const GenerateScriptModal = ({ isOpen, onClose }: GenerateScriptModalProps) => {
                           </motion.button>
                         ))}
                       </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">
+                        Voice Provider
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {ttsProviders.map((provider) => {
+                          const IconComponent = provider.icon;
+                          return (
+                            <motion.button
+                              key={provider.value}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              type="button"
+                              onClick={() => setSelectedTTSProvider(provider.value)}
+                              disabled={isGenerating}
+                              className={`group relative overflow-hidden rounded-2xl border-2 p-4 text-left transition-all ${
+                                selectedTTSProvider === provider.value
+                                  ? `border-brand-start bg-gradient-to-br ${provider.color} bg-opacity-10 shadow-lg`
+                                  : "border-canvas-border bg-white hover:border-brand-start hover:shadow-md"
+                              } ${
+                                isGenerating ? "opacity-50 cursor-not-allowed" : ""
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${provider.color} text-white shadow-sm`}
+                                >
+                                  <IconComponent className="h-5 w-5" />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-slate-900">
+                                      {provider.label}
+                                    </span>
+                                    {selectedTTSProvider === provider.value && (
+                                      <Check className="h-4 w-4 text-brand-start" />
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {provider.description}
+                                  </p>
+                                </div>
+                              </div>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                      {selectedTTSProvider === "elevenlabs" && (
+                        <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2">
+                          <p className="text-xs text-blue-700">
+                            💡 Make sure <code className="text-[10px] bg-blue-100 px-1 py-0.5 rounded">ELEVENLABS_API_KEY</code> is set in your <code className="text-[10px] bg-blue-100 px-1 py-0.5 rounded">.env</code> file
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="mt-6">
