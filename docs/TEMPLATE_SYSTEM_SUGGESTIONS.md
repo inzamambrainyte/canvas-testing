@@ -1,4 +1,5 @@
 # Template System Suggestions
+
 ## Adding Template Support for Script Generation
 
 ## 🎯 Overview
@@ -10,6 +11,7 @@ Allow users to select a template when generating a script. The system will autom
 ## 📐 Template Structure
 
 ### Template Definition
+
 ```typescript
 interface Template {
   id: string;
@@ -17,13 +19,13 @@ interface Template {
   description: string;
   thumbnail: string; // Preview image
   aspectRatio: "16:9" | "9:16" | "1:1";
-  
+
   // Template layout slots
   slots: TemplateSlot[];
-  
+
   // Default animations for elements
   defaultAnimations?: Animation[];
-  
+
   // Category/Type
   category: "modern" | "minimal" | "dynamic" | "corporate" | "creative";
 }
@@ -55,6 +57,7 @@ interface TemplateSlot {
 ## 🎨 Template Examples
 
 ### Template 1: "Split Screen"
+
 ```
 ┌─────────────────────────┐
 │  [Image 1]  │  [Image 2]│  ← Two side-by-side images
@@ -64,12 +67,14 @@ interface TemplateSlot {
 ```
 
 **Slots:**
+
 - Slot 1: Left Image (50% width, left side)
 - Slot 2: Right Image (50% width, right side)
 - Slot 3: Text Overlay (centered)
 - Slot 4: Video (right side, smaller)
 
 ### Template 2: "Hero with Overlays"
+
 ```
 ┌─────────────────────────┐
 │   [Background Image]    │  ← Full screen background
@@ -82,12 +87,14 @@ interface TemplateSlot {
 ```
 
 **Slots:**
+
 - Slot 1: Background (full screen, z-index: 0)
 - Slot 2: Hero Image (top-left, z-index: 1)
 - Slot 3: Video Clip (top-right, z-index: 1)
 - Slot 4: Text Overlay (center, z-index: 2)
 
 ### Template 3: "Grid Layout"
+
 ```
 ┌─────────────────────────┐
 │  [Img1] │ [Img2] │ [Img3]│  ← 3-column grid
@@ -97,10 +104,12 @@ interface TemplateSlot {
 ```
 
 **Slots:**
+
 - 6 slots in a 3x2 grid
 - Each slot: 33% width, 50% height
 
 ### Template 4: "Minimal Centered"
+
 ```
 ┌─────────────────────────┐
 │                         │
@@ -112,6 +121,7 @@ interface TemplateSlot {
 ```
 
 **Slots:**
+
 - Slot 1: Centered Image (60% width, centered)
 - Slot 2: Text (below image)
 
@@ -120,6 +130,7 @@ interface TemplateSlot {
 ## 🔄 Template Selection Flow
 
 ### Option 1: Pre-Selection (Before Script Generation)
+
 ```
 1. User clicks "Generate Script"
 2. Modal opens with:
@@ -135,6 +146,7 @@ interface TemplateSlot {
 ```
 
 ### Option 2: Post-Selection (After Script Generation)
+
 ```
 1. User generates script (current flow)
 2. In Step 2 (review scenes):
@@ -145,6 +157,7 @@ interface TemplateSlot {
 ```
 
 ### Option 3: Hybrid (Recommended)
+
 ```
 1. User clicks "Generate Script"
 2. Step 1: Template Selection (optional, can skip)
@@ -162,18 +175,21 @@ interface TemplateSlot {
 ## 🗂️ Template Storage Options
 
 ### Option 1: Hardcoded Templates (Quick Start)
+
 - Store templates in `lib/templates.ts` or `lib/templates.json`
 - Predefined set of 5-10 templates
 - Easy to implement
 - Limited customization
 
 ### Option 2: Database Templates (Scalable)
+
 - Store templates in MongoDB
 - Admin can create/edit templates
 - Users can save custom templates
 - More flexible
 
 ### Option 3: Hybrid Approach (Recommended)
+
 - Default templates in code
 - User-created templates in database
 - Best of both worlds
@@ -183,6 +199,7 @@ interface TemplateSlot {
 ## 🎯 Media-to-Slot Mapping Strategy
 
 ### Strategy 1: Sequential Assignment
+
 ```
 1. Fetch images/videos (as currently done)
 2. Sort by priority/quality
@@ -194,6 +211,7 @@ interface TemplateSlot {
 ```
 
 ### Strategy 2: Smart Matching
+
 ```
 1. Analyze each slot's constraints:
    - Preferred orientation
@@ -207,6 +225,7 @@ interface TemplateSlot {
 ```
 
 ### Strategy 3: AI-Powered Matching (Advanced)
+
 ```
 1. Use OpenAI to analyze:
    - Script content
@@ -219,6 +238,7 @@ interface TemplateSlot {
 ```
 
 ### Strategy 4: Keyword-Based Matching (Recommended)
+
 ```
 1. Each slot has optional keywords/tags
 2. Match fetched media keywords to slot keywords
@@ -233,18 +253,21 @@ interface TemplateSlot {
 ## 📋 Template Categories
 
 ### 1. Layout-Based Templates
+
 - **Split Screen**: Two equal sections
 - **Grid**: Multiple equal sections
 - **Centered**: Single focal point
 - **Asymmetric**: Creative layouts
 
 ### 2. Content-Based Templates
+
 - **Image-Heavy**: Multiple images, minimal text
 - **Video-Focused**: Videos as primary content
 - **Text-Overlay**: Text on top of media
 - **Mixed Media**: Balanced images/videos/text
 
 ### 3. Style-Based Templates
+
 - **Minimal**: Clean, simple layouts
 - **Dynamic**: Animated, energetic
 - **Corporate**: Professional, structured
@@ -257,6 +280,7 @@ interface TemplateSlot {
 ### Template Selection UI
 
 #### Option A: Grid View
+
 ```
 ┌─────────────────────────────────────┐
 │  Select Template                    │
@@ -276,6 +300,7 @@ interface TemplateSlot {
 ```
 
 #### Option B: Category Tabs
+
 ```
 ┌─────────────────────────────────────┐
 │  [Layout] [Style] [Content]         │
@@ -288,6 +313,7 @@ interface TemplateSlot {
 ```
 
 #### Option C: Preview with Info
+
 ```
 ┌─────────────────────────────────────┐
 │  Template Preview                   │
@@ -310,12 +336,14 @@ interface TemplateSlot {
 ### 1. Template Application Logic
 
 **When to Apply:**
+
 - During `createNewProject` function
 - After fetching media but before adding to scene
 - Map media to template slots
 - Create elements with template positions
 
 **Code Flow:**
+
 ```typescript
 createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
   // 1. Generate script (existing)
@@ -332,26 +360,31 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
 ### 2. Slot Filling Priority
 
 **Priority Order:**
+
 1. Required slots (must fill)
 2. High priority slots (fill first)
 3. Medium priority slots
 4. Low priority slots (optional)
 
 **Fallback:**
+
 - If not enough media: Leave slots empty or use placeholders
 - If too much media: Add to "extra" slots or ignore
 
 ### 3. Template Customization
 
 **Per-Scene Template:**
+
 - Each scene can have different template
 - Useful for variety in video
 
 **Global Template:**
+
 - Same template for all scenes
 - Consistent look
 
 **Hybrid:**
+
 - Default template for all scenes
 - Option to override per scene
 
@@ -360,6 +393,7 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
 ## 📊 Template Data Structure Example
 
 ### Example Template: "Split Screen Modern"
+
 ```json
 {
   "id": "split-screen-modern",
@@ -414,12 +448,15 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
 ## 🎯 Recommended Approach
 
 ### Phase 1: Basic Templates (MVP)
+
 1. **5-10 Hardcoded Templates**
+
    - Store in `lib/templates.ts`
    - Simple layouts (Split, Grid, Centered, etc.)
    - Basic slot mapping (sequential)
 
 2. **Template Selection in Generate Script Modal**
+
    - Add template picker in Step 1
    - Optional (can skip for current behavior)
    - Visual preview cards
@@ -429,11 +466,14 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
    - Priority-based (required slots first)
 
 ### Phase 2: Enhanced Templates
+
 1. **Template Categories**
+
    - Organize by layout/style
    - Filter/search templates
 
 2. **Smart Matching**
+
    - Match media to slots by constraints
    - Better aspect ratio matching
 
@@ -442,12 +482,15 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
    - Mix and match
 
 ### Phase 3: Advanced Features
+
 1. **User Templates**
+
    - Save custom templates
    - Share templates
    - Template marketplace
 
 2. **AI-Powered Matching**
+
    - Semantic matching
    - Content-aware placement
 
@@ -460,29 +503,34 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
 ## 💡 Additional Suggestions
 
 ### 1. Template Presets by Use Case
+
 - **Social Media**: Optimized for Instagram, TikTok, YouTube
 - **Presentation**: Professional, clean layouts
 - **Storytelling**: Narrative-focused templates
 - **Product Showcase**: Product-focused layouts
 
 ### 2. Dynamic Templates
+
 - Templates that adapt based on:
   - Number of images/videos fetched
   - Script length
   - Scene duration
 
 ### 3. Template Preview
+
 - Show template preview in modal
 - Highlight slot positions
 - Show example with placeholder media
 
 ### 4. Template Recommendations
+
 - Suggest templates based on:
   - Script content (AI analysis)
   - Aspect ratio selected
   - Number of scenes
 
 ### 5. Template Variants
+
 - Same template, different:
   - Animations
   - Colors
@@ -494,7 +542,9 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
 ## 🚀 Quick Start Recommendation
 
 **Start with:**
+
 1. **3-5 Simple Templates** (hardcoded)
+
    - Split Screen
    - Centered
    - Grid (2x2)
@@ -502,11 +552,13 @@ createNewProject(scenes, aspectRatio, ttsProvider, templateId?) {
    - Minimal
 
 2. **Template Selection in Modal**
+
    - Step 1: Template (optional)
    - Step 2: Script Prompt
    - Step 3: Aspect Ratio + Voice
 
 3. **Sequential Media Mapping**
+
    - Fill slots in priority order
    - Simple but effective
 
@@ -531,4 +583,3 @@ This gives you a working template system that can be enhanced later!
 ---
 
 **Ready to implement?** Start with Phase 1 (Basic Templates) for a quick win! 🚀
-

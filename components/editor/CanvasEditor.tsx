@@ -27,6 +27,7 @@ import { motion } from "framer-motion";
 import clsx from "clsx";
 import CanvasToolbar from "./CanvasToolbar";
 import FloatingElementToolbar from "./FloatingElementToolbar";
+import { HighlightedCaption } from "./HighlightedCaption";
 import { useEditorStore } from "@/store/editorStore";
 import type { CanvasElement, Animation } from "@/lib/types";
 import { previewAnimation, playAllAnimations } from "@/lib/animations";
@@ -110,6 +111,8 @@ const CanvasVideoNode = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!src) {
@@ -130,14 +133,18 @@ const CanvasVideoNode = ({
     canvasRef.current = canvas;
     videoRef.current = videoElement;
 
+    const UPDATE_INTERVAL = 200; // Update every 200ms (5fps - much more efficient)
+
     const updateCanvas = () => {
       if (!ctx || !videoElement || videoElement.readyState < 2) return;
+      if (!isPlaying) return; // Don't update if not playing
 
       canvas.width = videoElement.videoWidth || rest.width || 640;
       canvas.height = videoElement.videoHeight || rest.height || 360;
 
       ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
 
+      // Only create new image if canvas content actually changed
       const image = new window.Image();
       image.src = canvas.toDataURL();
       setVideoImage(image);
@@ -149,39 +156,43 @@ const CanvasVideoNode = ({
       updateCanvas();
     };
 
-    const handleTimeUpdate = () => {
-      if (isPlaying && ctx && videoElement) {
-        updateCanvas();
-      }
-    };
+    // Remove timeupdate listener - we'll use requestAnimationFrame only
+    // This prevents double updates
 
     videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
-    videoElement.addEventListener("timeupdate", handleTimeUpdate);
 
-    const animate = () => {
-      if (isPlaying && videoElement && ctx) {
-        updateCanvas();
-        animationFrameRef.current = requestAnimationFrame(animate);
-      }
-    };
-
+    // Use setInterval instead of requestAnimationFrame for better control
+    // This ensures we only update at the specified interval
     if (isPlaying) {
       videoElement.play().catch((error) => {
         console.error("Error playing video:", error);
       });
-      animationFrameRef.current = requestAnimationFrame(animate);
+
+      // Initial update
+      updateCanvas();
+
+      // Then update at intervals
+      updateIntervalRef.current = setInterval(() => {
+        if (isPlaying && videoElement.readyState >= 2) {
+          updateCanvas();
+        }
+      }, UPDATE_INTERVAL);
     } else {
       videoElement.pause();
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
     }
 
     return () => {
       videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
       videoElement.pause();
       videoElement.src = "";
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
+      }
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -409,6 +420,30 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
   const stageRef = useRef<Stage>(null);
   const transformerRef = useRef<Transformer>(null);
   const canvasShellRef = useRef<HTMLDivElement>(null);
+
+  // Calculate fixed canvas container size based on aspect ratio
+  // Max size: 800px for the larger dimension, maintaining aspect ratio
+  const maxCanvasSize = 800;
+  const canvasContainerSize = useMemo(() => {
+    const aspect = width / height;
+    let containerWidth: number;
+    let containerHeight: number;
+
+    if (aspect >= 1) {
+      // Landscape or square (16:9, 1:1) - width is larger
+      containerWidth = Math.min(maxCanvasSize, width * zoom);
+      containerHeight = containerWidth / aspect;
+    } else {
+      // Portrait (9:16) - height is larger
+      containerHeight = Math.min(maxCanvasSize, height * zoom);
+      containerWidth = containerHeight * aspect;
+    }
+
+    return {
+      width: containerWidth,
+      height: containerHeight,
+    };
+  }, [width, height, zoom]);
   const [toolbarPosition, setToolbarPosition] = useState<{
     x: number;
     y: number;
@@ -420,6 +455,166 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
     {}
   );
   const [audioVolumes, setAudioVolumes] = useState<Record<string, number>>({});
+  const [voiceoverCurrentTime, setVoiceoverCurrentTime] = useState(0);
+  const [isVoiceoverPlaying, setIsVoiceoverPlaying] = useState(false);
+  const voiceoverAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Track voiceover audio playback for caption synchronization
+  useEffect(() => {
+    if (!activeScene) {
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.src = "";
+        voiceoverAudioRef.current = null;
+      }
+      setIsVoiceoverPlaying(false);
+      setVoiceoverCurrentTime(0);
+      return;
+    }
+
+    // Find voiceover audio element
+    const voiceoverElement = activeScene.elements.find(
+      (el) => el.type === "audio" && el.label === "Voiceover"
+    );
+
+    if (!voiceoverElement || !voiceoverElement.assetUrl) {
+      setIsVoiceoverPlaying(false);
+      setVoiceoverCurrentTime(0);
+      return;
+    }
+
+    // Create or update audio element
+    if (!voiceoverAudioRef.current) {
+      voiceoverAudioRef.current = document.createElement("audio");
+      voiceoverAudioRef.current.preload = "auto";
+      voiceoverAudioRef.current.crossOrigin = "anonymous";
+    }
+
+    const audio = voiceoverAudioRef.current;
+
+    // Set source if it changed
+    if (audio.src !== voiceoverElement.assetUrl) {
+      audio.src = voiceoverElement.assetUrl;
+      // Reset current time when source changes
+      audio.currentTime = 0;
+    }
+
+    // Track playback time
+    const handleTimeUpdate = () => {
+      setVoiceoverCurrentTime(audio.currentTime);
+    };
+
+    const handlePlay = () => {
+      setIsVoiceoverPlaying(true);
+      console.log("✅ Voiceover started playing");
+    };
+
+    const handlePause = () => {
+      setIsVoiceoverPlaying(false);
+      console.log("⏸️ Voiceover paused");
+    };
+
+    const handleEnded = () => {
+      setIsVoiceoverPlaying(false);
+      setVoiceoverCurrentTime(0);
+      console.log("⏹️ Voiceover ended");
+    };
+
+    const handleError = (e: Event) => {
+      console.error("❌ Voiceover audio error:", e);
+      setIsVoiceoverPlaying(false);
+    };
+
+    const handleCanPlay = () => {
+      console.log("✅ Voiceover audio can play");
+    };
+
+    const handleLoadedData = () => {
+      console.log("✅ Voiceover audio data loaded");
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    audio.addEventListener("canplay", handleCanPlay);
+    audio.addEventListener("loadeddata", handleLoadedData);
+
+    // Auto-play voiceover when scene is active
+    const playVoiceover = async () => {
+      try {
+        // Wait for audio to be ready
+        if (audio.readyState < 2) {
+          // Wait for enough data to play
+          await new Promise<void>((resolve) => {
+            const checkReady = () => {
+              if (audio.readyState >= 2) {
+                resolve();
+              } else {
+                setTimeout(checkReady, 100);
+              }
+            };
+            audio.addEventListener("canplay", () => resolve(), { once: true });
+            checkReady();
+          });
+        }
+
+        audio.currentTime = 0;
+        const playPromise = audio.play();
+
+        if (playPromise !== undefined) {
+          await playPromise;
+          console.log("✅ Voiceover audio started playing successfully");
+        }
+      } catch (error: any) {
+        console.error("❌ Error auto-playing voiceover:", error);
+        // If autoplay is blocked, log a helpful message
+        if (error.name === "NotAllowedError") {
+          console.warn(
+            "⚠️ Autoplay blocked by browser. User interaction required."
+          );
+        }
+      }
+    };
+
+    // Wait for audio to load before playing
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    if (audio.readyState >= 2) {
+      // Audio is already loaded
+      playVoiceover();
+    } else {
+      // Wait for audio to load
+      audio.addEventListener(
+        "canplay",
+        () => {
+          playVoiceover();
+        },
+        { once: true }
+      );
+
+      // Fallback: try after a delay
+      timeoutId = setTimeout(() => {
+        playVoiceover();
+      }, 500);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.removeEventListener("canplay", handleCanPlay);
+      audio.removeEventListener("loadeddata", handleLoadedData);
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  }, [activeScene]);
 
   const selectedElement = useMemo(
     () =>
@@ -614,6 +809,36 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
     };
 
     if (element.type === "text") {
+      // Check if this is a caption text element
+      const isCaptionText = element.label === "Caption Text";
+      const captions = activeScene?.captions || [];
+
+      if (isCaptionText && captions.length > 0) {
+        // Use HighlightedCaption component for synchronized highlighting
+        return (
+          <HighlightedCaption
+            element={element}
+            captions={captions}
+            audioCurrentTime={voiceoverCurrentTime}
+            isPlaying={isVoiceoverPlaying}
+            id={baseProps.id}
+            x={baseProps.x}
+            y={baseProps.y}
+            width={baseProps.width}
+            height={baseProps.height}
+            rotation={baseProps.rotation}
+            draggable={baseProps.draggable}
+            onDragStart={baseProps.onDragStart}
+            onDragEnd={baseProps.onDragEnd}
+            onTransformEnd={baseProps.onTransformEnd}
+            onClick={baseProps.onClick}
+            onTap={baseProps.onTap}
+            listening={baseProps.listening}
+          />
+        );
+      }
+
+      // Regular text element
       return (
         <KonvaText
           {...baseProps}
@@ -804,8 +1029,8 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
   return (
     <section className="flex flex-1 flex-col">
       <CanvasToolbar onPFVClick={onPFVClick} />
-      <div className="grid flex-1 grid-cols-[auto_360px] gap-4 px-6 py-4">
-        <div className="flex flex-col">
+      <div className="grid flex-1 grid-cols-[auto_360px] gap-4 px-6 py-4 overflow-hidden">
+        <div className="flex flex-col overflow-hidden">
           <div className="mb-3 flex items-center justify-between rounded-2xl border border-canvas-border bg-white/70 px-4 py-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -820,7 +1045,7 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
               Auto-sync
             </button>
           </div>
-          <div className="relative flex flex-1 flex-col rounded-3xl border border-canvas-border bg-white/90 p-6 shadow-soft">
+          <div className="relative flex flex-col rounded-3xl border border-canvas-border bg-white/90 p-6 shadow-soft overflow-hidden">
             <FloatingElementToolbar
               element={editableElement}
               position={toolbarPosition}
@@ -829,7 +1054,17 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
               onResetPosition={handleToolbarReset}
               onUpdate={handleElementPatch}
             />
-            <div className="relative flex flex-1 items-center justify-center">
+            <div
+              className="relative flex items-center justify-center mx-auto flex-shrink-0"
+              style={{
+                width: canvasContainerSize.width + 48, // Add padding (24px * 2)
+                height: canvasContainerSize.height + 48,
+                minWidth: canvasContainerSize.width + 48,
+                minHeight: canvasContainerSize.height + 48,
+                maxWidth: canvasContainerSize.width + 48,
+                maxHeight: canvasContainerSize.height + 48,
+              }}
+            >
               <div className="pointer-events-none absolute inset-6 rounded-3xl border border-dashed border-slate-200" />
               <div className="absolute inset-0 opacity-30">
                 <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 border-l border-dashed border-slate-200" />
@@ -840,8 +1075,9 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
                 layout
                 className="relative rounded-[32px] bg-gradient-to-br from-slate-50 to-white shadow-soft"
                 style={{
-                  width: width * zoom,
-                  height: height * zoom,
+                  width: canvasContainerSize.width,
+                  height: canvasContainerSize.height,
+                  flexShrink: 0,
                 }}
               >
                 <Stage
@@ -851,6 +1087,10 @@ const CanvasEditor = ({ onPFVClick }: CanvasEditorProps = {}) => {
                   scaleX={zoom}
                   scaleY={zoom}
                   className="rounded-[32px]"
+                  style={{
+                    width: `${canvasContainerSize.width}px`,
+                    height: `${canvasContainerSize.height}px`,
+                  }}
                   onMouseDown={handleStagePointerDown}
                   onTouchStart={handleStagePointerDown}
                 >

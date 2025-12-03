@@ -39,6 +39,7 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
     redo,
     canUndo,
     canRedo,
+    exportProject,
   } = useEditorStore((state) => ({
     aspectRatio: state.aspectRatio,
     setAspectRatio: state.setAspectRatio,
@@ -52,6 +53,7 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
     redo: state.redo,
     canUndo: state.canUndo,
     canRedo: state.canRedo,
+    exportProject: state.exportProject,
   }));
 
   const activeSceneTitle = useMemo(
@@ -168,14 +170,18 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
           <Monitor className="h-4 w-4" aria-hidden />
           PFV
         </motion.button>
-        <button
+        <motion.button
           type="button"
-          disabled
-          className="inline-flex cursor-not-allowed items-center gap-2 rounded-full border border-canvas-border/60 px-4 py-2 text-sm font-semibold text-slate-400"
+          whileTap={{ scale: 0.97 }}
+          onClick={() => {
+            const { download } = exportProject();
+            download();
+          }}
+          className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-start hover:bg-slate-50"
         >
           <Download className="h-4 w-4" aria-hidden />
           Export
-        </button>
+        </motion.button>
       </div>
     </header>
   );

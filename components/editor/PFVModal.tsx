@@ -16,6 +16,7 @@ import type Konva from "konva";
 import { useEditorStore } from "@/store/editorStore";
 import type { CanvasElement } from "@/lib/types";
 import { animateElement } from "@/lib/animations";
+import { HighlightedCaption } from "./HighlightedCaption";
 
 const ratioDimensions = {
   "16:9": { width: 960, height: 540 },
@@ -83,7 +84,7 @@ const CanvasVideoNode = ({
   const [videoImage, setVideoImage] = useState<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!src) {
@@ -104,11 +105,16 @@ const CanvasVideoNode = ({
     canvasRef.current = canvas;
     videoRef.current = videoElement;
 
+    const UPDATE_INTERVAL = 200; // Update every 200ms (5fps - much more efficient)
+
     const updateCanvas = () => {
       if (!ctx || !videoElement) return;
+      if (!isPlaying) return; // Don't update if not playing
+
       const videoWidth = videoElement.videoWidth || rest.width || 640;
       const videoHeight = videoElement.videoHeight || rest.height || 360;
       if (videoWidth === 0 || videoHeight === 0) return;
+
       canvas.width = videoWidth;
       canvas.height = videoHeight;
       try {
@@ -125,30 +131,30 @@ const CanvasVideoNode = ({
     const handleLoadedMetadata = () => updateCanvas();
     const handleLoadedData = () => updateCanvas();
     const handleCanPlay = () => updateCanvas();
-    const handleTimeUpdate = () => {
-      if (isPlaying && ctx && videoElement) updateCanvas();
-    };
+    // Remove timeupdate listener - we'll use requestAnimationFrame only
+    // This prevents excessive updates
 
     videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
     videoElement.addEventListener("loadeddata", handleLoadedData);
     videoElement.addEventListener("canplay", handleCanPlay);
-    videoElement.addEventListener("timeupdate", handleTimeUpdate);
     videoElement.load();
 
-    const animate = () => {
-      if (isPlaying && videoElement && ctx) {
-        updateCanvas();
-        animationFrameRef.current = requestAnimationFrame(animate);
-      }
-    };
-
-    const startPlayback = () => {
-      if (isPlaying) {
+    // Use setInterval instead of requestAnimationFrame for better control
+    if (isPlaying) {
+      const startPlayback = () => {
         const playPromise = videoElement.play();
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
-              animationFrameRef.current = requestAnimationFrame(animate);
+              // Initial update
+              updateCanvas();
+
+              // Then update at intervals
+              updateIntervalRef.current = setInterval(() => {
+                if (isPlaying && videoElement.readyState >= 2) {
+                  updateCanvas();
+                }
+              }, UPDATE_INTERVAL);
             })
             .catch((error) => {
               console.error("Error playing video:", error);
@@ -157,34 +163,35 @@ const CanvasVideoNode = ({
               }, 500);
             });
         }
-      } else {
-        videoElement.pause();
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
+      };
+
+      const readyCheck = () => {
+        if (videoElement.readyState >= 2) {
+          startPlayback();
+          updateCanvas();
+        } else {
+          setTimeout(readyCheck, 100);
         }
-      }
-    };
+      };
 
-    const readyCheck = () => {
-      if (videoElement.readyState >= 2) {
-        startPlayback();
-        updateCanvas();
-      } else {
-        setTimeout(readyCheck, 100);
+      readyCheck();
+    } else {
+      videoElement.pause();
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
-    };
-
-    readyCheck();
+    }
 
     return () => {
       videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
       videoElement.removeEventListener("loadeddata", handleLoadedData);
       videoElement.removeEventListener("canplay", handleCanPlay);
-      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
       videoElement.pause();
       videoElement.src = "";
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
     };
   }, [src, isPlaying, rest.width, rest.height]);
@@ -221,6 +228,7 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage>(null);
   const animationRefs = useRef<Konva.Animation[]>([]);
+  const voiceoverAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const { scenes, aspectRatio } = useEditorStore((state) => ({
     scenes: state.scenes,
@@ -231,32 +239,40 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [voiceoverCurrentTime, setVoiceoverCurrentTime] = useState(0);
+  const [isVoiceoverPlaying, setIsVoiceoverPlaying] = useState(false);
 
   // Calculate total duration and scene start times
+  // Use voiceover.duration if available (more accurate), otherwise use scene.duration
   const { totalDuration, sceneStartTimes } = useMemo(() => {
     let total = 0;
     const starts: number[] = [0];
     scenes.forEach((scene) => {
-      total += scene.duration;
+      // Prefer voiceover duration if available (actual audio duration)
+      const sceneDuration = scene.voiceover?.duration || scene.duration;
+      total += sceneDuration;
       starts.push(total);
     });
     return { totalDuration: total, sceneStartTimes: starts };
   }, [scenes]);
 
   // Get current scene based on time
+  // Use voiceover.duration if available for accurate timing
   const currentScene = useMemo(() => {
     if (scenes.length === 0) return null;
     let sceneIndex = 0;
     let accumulatedTime = 0;
     for (let i = 0; i < scenes.length; i++) {
+      // Prefer voiceover duration if available (actual audio duration)
+      const sceneDuration = scenes[i].voiceover?.duration || scenes[i].duration;
       if (
         currentTime >= accumulatedTime &&
-        currentTime < accumulatedTime + scenes[i].duration
+        currentTime < accumulatedTime + sceneDuration
       ) {
         sceneIndex = i;
         break;
       }
-      accumulatedTime += scenes[i].duration;
+      accumulatedTime += sceneDuration;
     }
     return { scene: scenes[sceneIndex], index: sceneIndex };
   }, [scenes, currentTime]);
@@ -291,6 +307,12 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
       setCurrentTime(0);
       animationRefs.current.forEach((anim) => anim.stop());
       animationRefs.current = [];
+      // Stop and cleanup voiceover audio
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.src = "";
+        voiceoverAudioRef.current = null;
+      }
     }
 
     return () => {
@@ -298,6 +320,12 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
       document.body.style.overflow = "unset";
       animationRefs.current.forEach((anim) => anim.stop());
       animationRefs.current = [];
+      // Cleanup voiceover audio
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.src = "";
+        voiceoverAudioRef.current = null;
+      }
     };
   }, [isOpen, onClose]);
 
@@ -416,6 +444,94 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
     };
   }, [currentScene, sceneStartTimes, isPlaying]); // Add isPlaying to trigger when playback starts
 
+  // Handle voiceover audio playback
+  useEffect(() => {
+    if (!currentScene || !isPlaying) {
+      // Stop voiceover when not playing or scene changes
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.currentTime = 0;
+      }
+      return;
+    }
+
+    const scene = currentScene.scene;
+
+    // Find voiceover audio element in the scene
+    const voiceoverElement = scene.elements.find(
+      (el) => el.type === "audio" && el.label === "Voiceover"
+    );
+
+    if (!voiceoverElement || !voiceoverElement.assetUrl) {
+      return;
+    }
+
+    // Create or update audio element
+    if (!voiceoverAudioRef.current) {
+      voiceoverAudioRef.current = document.createElement("audio");
+      voiceoverAudioRef.current.preload = "auto";
+      voiceoverAudioRef.current.crossOrigin = "anonymous";
+    }
+
+    // Set source if it changed
+    if (voiceoverAudioRef.current.src !== voiceoverElement.assetUrl) {
+      voiceoverAudioRef.current.src = voiceoverElement.assetUrl;
+    }
+
+    const audio = voiceoverAudioRef.current;
+
+    // Track playback time for caption synchronization
+    // Use time relative to the current scene (not total time)
+    const handleTimeUpdate = () => {
+      const sceneStartTime = sceneStartTimes[currentScene.index] || 0;
+      const relativeTime = audio.currentTime;
+      setVoiceoverCurrentTime(relativeTime);
+    };
+
+    const handlePlay = () => {
+      setIsVoiceoverPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsVoiceoverPlaying(false);
+    };
+
+    const handleEnded = () => {
+      setIsVoiceoverPlaying(false);
+      setVoiceoverCurrentTime(0);
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+
+    // Play the voiceover
+    const playVoiceover = async () => {
+      try {
+        audio.currentTime = 0;
+        await audio.play();
+        console.log("✅ Voiceover audio started playing");
+      } catch (error) {
+        console.error("❌ Error playing voiceover audio:", error);
+      }
+    };
+
+    playVoiceover();
+
+    // Cleanup on unmount or scene change
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.currentTime = 0;
+      }
+    };
+  }, [currentScene, isPlaying, sceneStartTimes]);
+
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
   };
@@ -454,6 +570,23 @@ const PFVModal = ({ isOpen, onClose }: PFVModalProps) => {
     };
 
     if (element.type === "text") {
+      // Check if this is a caption text element
+      const isCaptionText = element.label === "Caption Text";
+      const captions = currentScene?.scene.captions || [];
+
+      if (isCaptionText && captions.length > 0) {
+        // Use HighlightedCaption component for synchronized highlighting
+        return (
+          <HighlightedCaption
+            element={element}
+            captions={captions}
+            audioCurrentTime={voiceoverCurrentTime}
+            isPlaying={isVoiceoverPlaying}
+          />
+        );
+      }
+
+      // Regular text element
       return (
         <KonvaText
           {...baseProps}

@@ -2,7 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GripVertical, MoreHorizontal, Play, ChevronDown } from "lucide-react";
+import {
+  GripVertical,
+  MoreHorizontal,
+  Play,
+  ChevronDown,
+  Volume2,
+  Loader2,
+} from "lucide-react";
 import Image from "next/image";
 import clsx from "clsx";
 
@@ -17,6 +24,8 @@ type SceneItemProps = {
   onDuplicate: () => void;
   onDelete: () => void;
   onScriptUpdate: (script: string) => void;
+  onRegenerateVoiceover?: () => Promise<void>;
+  hasVoiceover?: boolean;
 };
 
 const SceneItem = ({
@@ -29,9 +38,13 @@ const SceneItem = ({
   onDuplicate,
   onDelete,
   onScriptUpdate,
+  onRegenerateVoiceover,
+  hasVoiceover = false,
 }: SceneItemProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [localScript, setLocalScript] = useState(script);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
 
   // Sync localScript with script prop when it changes externally
   useEffect(() => {
@@ -50,6 +63,23 @@ const SceneItem = ({
     onScriptUpdate(value);
   };
 
+  const handleRegenerateVoiceover = async () => {
+    if (!onRegenerateVoiceover || !script.trim()) return;
+
+    setIsRegenerating(true);
+    setRegenerateError(null);
+
+    try {
+      await onRegenerateVoiceover();
+      // Success - error will be cleared
+    } catch (error: any) {
+      setRegenerateError(error.message || "Failed to regenerate voiceover");
+      console.error("Error regenerating voiceover:", error);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
   return (
     <div
       className={clsx(
@@ -66,28 +96,28 @@ const SceneItem = ({
         onClick={handleClick}
         className="flex w-full items-center gap-3 px-3 py-3 text-left"
       >
-      <span className="flex h-full items-center text-slate-400">
-        <GripVertical className="h-4 w-4" aria-hidden />
-      </span>
-      <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100">
-        <Image
-          src={thumbnail}
-          alt={title}
-          fill
-          sizes="96px"
-          className="object-cover transition-transform group-hover:scale-105"
-        />
-        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-xs font-medium text-slate-800 shadow-sm">
-          <Play className="h-3 w-3" aria-hidden />
-          {duration}s
+        <span className="flex h-full items-center text-slate-400">
+          <GripVertical className="h-4 w-4" aria-hidden />
         </span>
-      </div>
-      <div className="flex flex-1 flex-col">
-        <span className="text-sm font-medium text-slate-900">{title}</span>
-        <span className="text-xs text-slate-500">
-          Script ready • {duration}s
-        </span>
-      </div>
+        <div className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100">
+          <Image
+            src={thumbnail}
+            alt={title}
+            fill
+            sizes="96px"
+            className="object-cover transition-transform group-hover:scale-105"
+          />
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5 text-xs font-medium text-slate-800 shadow-sm">
+            <Play className="h-3 w-3" aria-hidden />
+            {duration}s
+          </span>
+        </div>
+        <div className="flex flex-1 flex-col">
+          <span className="text-sm font-medium text-slate-900">{title}</span>
+          <span className="text-xs text-slate-500">
+            Script ready • {duration}s
+          </span>
+        </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             type="button"
@@ -127,19 +157,71 @@ const SceneItem = ({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-canvas-border/50 px-3 pb-3 pt-3">
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Script
-              </label>
-              <textarea
-                value={localScript}
-                onChange={(e) => handleScriptChange(e.target.value)}
-                placeholder="Enter scene script..."
-                className="w-full resize-none rounded-xl border border-canvas-border bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-start focus:outline-none focus:ring-2 focus:ring-brand-start/20"
-                rows={4}
-                onClick={(e) => e.stopPropagation()}
-                onFocus={(e) => e.stopPropagation()}
-              />
+            <div className="border-t border-canvas-border/50 px-3 pb-3 pt-3 space-y-3">
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Script
+                </label>
+                <textarea
+                  value={localScript}
+                  onChange={(e) => handleScriptChange(e.target.value)}
+                  placeholder="Enter scene script..."
+                  className="w-full resize-none rounded-xl border border-canvas-border bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-start focus:outline-none focus:ring-2 focus:ring-brand-start/20"
+                  rows={4}
+                  onClick={(e) => e.stopPropagation()}
+                  onFocus={(e) => e.stopPropagation()}
+                />
+              </div>
+
+              {/* Regenerate Voiceover Button */}
+              {script.trim() && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRegenerateVoiceover();
+                    }}
+                    disabled={isRegenerating || !onRegenerateVoiceover}
+                    className={clsx(
+                      "flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-all",
+                      isRegenerating
+                        ? "border-slate-300 bg-slate-50 text-slate-400 cursor-not-allowed"
+                        : hasVoiceover
+                        ? "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100"
+                        : "border-brand-start/30 bg-brand-start/5 text-brand-start hover:border-brand-start/50 hover:bg-brand-start/10"
+                    )}
+                  >
+                    {isRegenerating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Regenerating...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="h-4 w-4" />
+                        <span>
+                          {hasVoiceover
+                            ? "Regenerate Voiceover"
+                            : "Generate Voiceover"}
+                        </span>
+                      </>
+                    )}
+                  </button>
+
+                  {regenerateError && (
+                    <p className="mt-2 text-xs text-rose-600">
+                      {regenerateError}
+                    </p>
+                  )}
+
+                  {hasVoiceover && !isRegenerating && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Voiceover exists. Click to regenerate with updated script.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
         )}

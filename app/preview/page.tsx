@@ -14,6 +14,7 @@ import type Konva from "konva";
 import { useEditorStore } from "@/store/editorStore";
 import type { CanvasElement } from "@/lib/types";
 import { animateElement } from "@/lib/animations";
+import { HighlightedCaption } from "@/components/editor/HighlightedCaption";
 
 const ratioDimensions = {
   "16:9": { width: 960, height: 540 },
@@ -82,7 +83,7 @@ const CanvasVideoNode = ({
   const [videoImage, setVideoImage] = useState<HTMLImageElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!src) {
@@ -103,8 +104,11 @@ const CanvasVideoNode = ({
     canvasRef.current = canvas;
     videoRef.current = videoElement;
 
+    const UPDATE_INTERVAL = 200; // Update every 200ms (5fps - much more efficient)
+
     const updateCanvas = () => {
       if (!ctx || !videoElement) return;
+      if (!isPlaying) return; // Don't update if not playing
 
       // Try to get video dimensions, fallback to element dimensions
       const videoWidth = videoElement.videoWidth || rest.width || 640;
@@ -144,35 +148,32 @@ const CanvasVideoNode = ({
       updateCanvas();
     };
 
-    const handleTimeUpdate = () => {
-      if (isPlaying && ctx && videoElement) {
-        updateCanvas();
-      }
-    };
+    // Remove timeupdate listener - we'll use requestAnimationFrame only
+    // This prevents excessive updates
 
     videoElement.addEventListener("loadedmetadata", handleLoadedMetadata);
     videoElement.addEventListener("loadeddata", handleLoadedData);
     videoElement.addEventListener("canplay", handleCanPlay);
-    videoElement.addEventListener("timeupdate", handleTimeUpdate);
 
     // Try to load the video
     videoElement.load();
 
-    const animate = () => {
-      if (isPlaying && videoElement && ctx) {
-        updateCanvas();
-        animationFrameRef.current = requestAnimationFrame(animate);
-      }
-    };
-
-    // Start playing after a short delay to ensure video is ready
-    const startPlayback = () => {
-      if (isPlaying) {
+    // Use setInterval instead of requestAnimationFrame for better control
+    if (isPlaying) {
+      const startPlayback = () => {
         const playPromise = videoElement.play();
         if (playPromise !== undefined) {
           playPromise
             .then(() => {
-              animationFrameRef.current = requestAnimationFrame(animate);
+              // Initial update
+              updateCanvas();
+
+              // Then update at intervals
+              updateIntervalRef.current = setInterval(() => {
+                if (isPlaying && videoElement.readyState >= 2) {
+                  updateCanvas();
+                }
+              }, UPDATE_INTERVAL);
             })
             .catch((error) => {
               console.error("Error playing video:", error);
@@ -182,35 +183,36 @@ const CanvasVideoNode = ({
               }, 500);
             });
         }
-      } else {
-        videoElement.pause();
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
+      };
+
+      // Wait for video to be ready before starting playback
+      const readyCheck = () => {
+        if (videoElement.readyState >= 2) {
+          startPlayback();
+          updateCanvas();
+        } else {
+          setTimeout(readyCheck, 100);
         }
-      }
-    };
+      };
 
-    // Wait for video to be ready before starting playback
-    const readyCheck = () => {
-      if (videoElement.readyState >= 2) {
-        startPlayback();
-        updateCanvas();
-      } else {
-        setTimeout(readyCheck, 100);
+      readyCheck();
+    } else {
+      videoElement.pause();
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
-    };
-
-    readyCheck();
+    }
 
     return () => {
       videoElement.removeEventListener("loadedmetadata", handleLoadedMetadata);
       videoElement.removeEventListener("loadeddata", handleLoadedData);
       videoElement.removeEventListener("canplay", handleCanPlay);
-      videoElement.removeEventListener("timeupdate", handleTimeUpdate);
       videoElement.pause();
       videoElement.src = "";
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+        updateIntervalRef.current = null;
       }
     };
   }, [src, isPlaying, rest.width, rest.height]);
@@ -252,6 +254,96 @@ const PreviewPage = () => {
   const { width, height } = ratioDimensions[aspectRatio];
 
   const stageRef = useRef<Stage>(null);
+  const voiceoverAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [voiceoverCurrentTime, setVoiceoverCurrentTime] = useState(0);
+  const [isVoiceoverPlaying, setIsVoiceoverPlaying] = useState(false);
+
+  // Play voiceover audio when preview loads
+  useEffect(() => {
+    if (!activeScene) {
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.src = "";
+        voiceoverAudioRef.current = null;
+      }
+      return;
+    }
+
+    // Find voiceover audio element in the scene
+    const voiceoverElement = activeScene.elements.find(
+      (el) => el.type === "audio" && el.label === "Voiceover"
+    );
+
+    if (!voiceoverElement || !voiceoverElement.assetUrl) {
+      return;
+    }
+
+    // Create or update audio element
+    if (!voiceoverAudioRef.current) {
+      voiceoverAudioRef.current = document.createElement("audio");
+      voiceoverAudioRef.current.preload = "auto";
+      voiceoverAudioRef.current.crossOrigin = "anonymous";
+    }
+
+    // Set source if it changed
+    if (voiceoverAudioRef.current.src !== voiceoverElement.assetUrl) {
+      voiceoverAudioRef.current.src = voiceoverElement.assetUrl;
+    }
+
+    const audio = voiceoverAudioRef.current;
+
+    // Track playback time for caption synchronization
+    const handleTimeUpdate = () => {
+      setVoiceoverCurrentTime(audio.currentTime);
+    };
+
+    const handlePlay = () => {
+      setIsVoiceoverPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsVoiceoverPlaying(false);
+    };
+
+    const handleEnded = () => {
+      setIsVoiceoverPlaying(false);
+      setVoiceoverCurrentTime(0);
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("ended", handleEnded);
+
+    // Play the voiceover automatically
+    const playVoiceover = async () => {
+      try {
+        audio.currentTime = 0;
+        await audio.play();
+        console.log("✅ Voiceover audio started playing in preview");
+      } catch (error) {
+        console.error("❌ Error playing voiceover audio in preview:", error);
+      }
+    };
+
+    // Small delay to ensure audio is ready
+    const timeoutId = setTimeout(() => {
+      playVoiceover();
+    }, 200);
+
+    // Cleanup on unmount or scene change
+    return () => {
+      clearTimeout(timeoutId);
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("ended", handleEnded);
+      if (voiceoverAudioRef.current) {
+        voiceoverAudioRef.current.pause();
+        voiceoverAudioRef.current.currentTime = 0;
+      }
+    };
+  }, [activeScene]);
 
   // Play animations when preview loads
   useEffect(() => {
@@ -297,6 +389,23 @@ const PreviewPage = () => {
     };
 
     if (element.type === "text") {
+      // Check if this is a caption text element
+      const isCaptionText = element.label === "Caption Text";
+      const captions = activeScene?.captions || [];
+
+      if (isCaptionText && captions.length > 0) {
+        // Use HighlightedCaption component for synchronized highlighting
+        return (
+          <HighlightedCaption
+            element={element}
+            captions={captions}
+            audioCurrentTime={voiceoverCurrentTime}
+            isPlaying={isVoiceoverPlaying}
+          />
+        );
+      }
+
+      // Regular text element
       return (
         <KonvaText
           {...baseProps}

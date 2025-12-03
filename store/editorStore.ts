@@ -10,6 +10,7 @@ import type {
   Caption,
 } from "@/lib/types";
 import { apiClient } from "@/lib/api/client";
+import { getAudioDuration, calculateDurationFromText } from "@/lib/utils/audio";
 
 type HistoryState = {
   undo: CanvasElement[][];
@@ -56,6 +57,19 @@ type EditorStore = {
   redo: (sceneId: string) => void;
   canUndo: (sceneId: string) => boolean;
   canRedo: (sceneId: string) => boolean;
+  regenerateVoiceover: (
+    sceneId: string,
+    ttsProvider?: "openai" | "elevenlabs"
+  ) => Promise<void>;
+  exportProject: () => {
+    project: {
+      version: string;
+      aspectRatio: AspectRatio;
+      scenes: Scene[];
+      exportedAt: string;
+    };
+    download: () => void;
+  };
 };
 
 const generateScene = (index: number): Scene => ({
@@ -249,7 +263,36 @@ export const useEditorStore = create<EditorStore>()(
                 1,
                 5
               )) as any;
-              const photos = imagesResponse.photos || [];
+
+              // Debug: Check response structure
+              console.log(
+                `[Scene ${i}] Images API response keys:`,
+                Object.keys(imagesResponse || {})
+              );
+              console.log(
+                `[Scene ${i}] Images response has photos?:`,
+                "photos" in (imagesResponse || {})
+              );
+
+              // Backend returns { success: true, data: { photos: [...] } }
+              // API client extracts data, so we get { photos: [...] }
+              const photos =
+                imagesResponse?.photos || imagesResponse?.data?.photos || [];
+
+              console.log(
+                `[Scene ${i}] ✅ Fetched ${photos.length} images for keywords: ${keywords}`
+              );
+              if (photos.length === 0) {
+                console.error(
+                  `[Scene ${i}] ❌ No images found! Response structure:`,
+                  imagesResponse
+                );
+              } else {
+                console.log(
+                  `[Scene ${i}] First image URL:`,
+                  photos[0]?.src?.large2x || photos[0]?.src?.large
+                );
+              }
 
               // Fetch videos (1-2 videos for short clips/animations)
               const videosResponse = (await apiClient.getVideos(
@@ -257,36 +300,98 @@ export const useEditorStore = create<EditorStore>()(
                 1,
                 2
               )) as any;
-              const videos = videosResponse.videos || [];
+
+              // Debug: Check response structure
+              console.log(
+                `[Scene ${i}] Videos API response keys:`,
+                Object.keys(videosResponse || {})
+              );
+              console.log(
+                `[Scene ${i}] Videos response has videos?:`,
+                "videos" in (videosResponse || {})
+              );
+
+              // Backend returns { success: true, data: { videos: [...] } }
+              // API client extracts data, so we get { videos: [...] }
+              const videos =
+                videosResponse?.videos || videosResponse?.data?.videos || [];
+
+              console.log(
+                `[Scene ${i}] ✅ Fetched ${videos.length} videos for keywords: ${keywords}`
+              );
+              if (videos.length === 0) {
+                console.error(
+                  `[Scene ${i}] ❌ No videos found! Response structure:`,
+                  videosResponse
+                );
+              }
+              if (videos.length === 0) {
+                console.warn(
+                  `[Scene ${i}] No videos found. Response:`,
+                  videosResponse
+                );
+              }
+
+              console.log(
+                `[Scene ${i}] Total elements before adding media: ${sceneElements.length}`
+              );
 
               // Add background image (full screen, first image)
               if (photos.length > 0) {
                 const bgPhoto = photos[0];
-                const bgImageUrl = bgPhoto.src.large2x || bgPhoto.src.large;
-                const bgElementId = `element-${timestamp}-${i}-bg`;
+                const bgImageUrl =
+                  bgPhoto?.src?.large2x ||
+                  bgPhoto?.src?.large ||
+                  bgPhoto?.src?.original;
 
-                const backgroundElement: CanvasElement = {
-                  id: bgElementId,
-                  type: "image",
-                  label: "Background",
-                  x: 0,
-                  y: 0,
-                  width: canvasDims.width,
-                  height: canvasDims.height,
-                  assetUrl: bgImageUrl,
-                  imageFit: "cover",
-                  locked: false,
-                  opacity: 1,
-                  animations: generateBackgroundAnimations(bgElementId),
-                };
+                if (!bgImageUrl) {
+                  console.error(
+                    `[Scene ${i}] ❌ Background photo missing src:`,
+                    bgPhoto
+                  );
+                } else {
+                  const bgElementId = `element-${timestamp}-${i}-bg`;
 
-                sceneElements.push(backgroundElement);
+                  const backgroundElement: CanvasElement = {
+                    id: bgElementId,
+                    type: "image",
+                    label: "Background",
+                    x: 0,
+                    y: 0,
+                    width: canvasDims.width,
+                    height: canvasDims.height,
+                    assetUrl: bgImageUrl,
+                    imageFit: "cover",
+                    locked: false,
+                    opacity: 1,
+                    animations: generateBackgroundAnimations(bgElementId),
+                  };
+
+                  sceneElements.push(backgroundElement);
+                  console.log(`[Scene ${i}] ✅ Added background image element`);
+                }
+              } else {
+                console.warn(
+                  `[Scene ${i}] ⚠️ No photos available to add as background`
+                );
               }
 
               // Add additional images (2-4 more images, positioned as overlays)
               const additionalImages = photos.slice(1, 5); // Get 2-4 more images
               additionalImages.forEach((photo: any, imgIndex: number) => {
-                const imageUrl = photo.src.large2x || photo.src.large;
+                const imageUrl =
+                  photo?.src?.large2x ||
+                  photo?.src?.large ||
+                  photo?.src?.original;
+
+                if (!imageUrl) {
+                  console.error(
+                    `[Scene ${i}] ❌ Additional image ${imgIndex} missing src:`,
+                    photo
+                  );
+                  return;
+                }
+
                 const elementId = `element-${timestamp}-${i}-img-${imgIndex}`;
 
                 // Position images in different areas of the canvas
@@ -320,15 +425,26 @@ export const useEditorStore = create<EditorStore>()(
                 };
 
                 sceneElements.push(imageElement);
+                console.log(
+                  `[Scene ${i}] ✅ Added overlay image ${imgIndex + 2}`
+                );
               });
 
               // Add video clips (short clips/animations)
               videos.forEach((video: any, vidIndex: number) => {
                 // Get the best quality video file
                 const videoFile =
-                  video.video_files?.find(
+                  video?.video_files?.find(
                     (f: any) => f.quality === "hd" || f.quality === "sd"
-                  ) || video.video_files?.[0];
+                  ) || video?.video_files?.[0];
+
+                if (!videoFile) {
+                  console.error(
+                    `[Scene ${i}] ❌ Video ${vidIndex} missing video_files:`,
+                    video
+                  );
+                  return;
+                }
 
                 if (videoFile) {
                   const elementId = `element-${timestamp}-${i}-vid-${vidIndex}`;
@@ -372,13 +488,21 @@ export const useEditorStore = create<EditorStore>()(
                   };
 
                   sceneElements.push(videoElement);
+                  console.log(
+                    `[Scene ${i}] ✅ Added video clip ${vidIndex + 1}`
+                  );
                 }
               });
+
+              console.log(
+                `[Scene ${i}] Total elements after adding media: ${sceneElements.length}`
+              );
             } catch (error) {
               console.error(
                 `Error fetching media for scene ${scene.id}:`,
                 error
               );
+              // Even if media fetch fails, continue to add voiceover if available
             }
           }
 
@@ -401,10 +525,31 @@ export const useEditorStore = create<EditorStore>()(
               })) as any;
 
               if (ttsResult.success && ttsResult.audioUrl) {
-                // Store voiceover data
+                // Get actual audio duration (more accurate than estimate)
+                let actualDuration = ttsResult.duration;
+                try {
+                  actualDuration = await getAudioDuration(ttsResult.audioUrl);
+                  console.log(
+                    `[Scene ${i}] Actual audio duration: ${actualDuration.toFixed(
+                      2
+                    )}s`
+                  );
+                } catch (error) {
+                  console.warn(
+                    `[Scene ${i}] Failed to get actual audio duration, using estimate:`,
+                    error
+                  );
+                  // Fallback to calculated duration from text
+                  actualDuration = calculateDurationFromText(
+                    scene.script,
+                    ttsProvider
+                  );
+                }
+
+                // Store voiceover data with actual duration
                 sceneVoiceover = {
                   audioUrl: ttsResult.audioUrl,
-                  duration: ttsResult.duration,
+                  duration: actualDuration,
                   voice: ttsResult.voice || ttsResult.voice_id || "alloy",
                   model: ttsResult.model || ttsResult.model_id || "tts-1",
                   provider: ttsProvider,
@@ -436,7 +581,7 @@ export const useEditorStore = create<EditorStore>()(
                   height: 40,
                   fill: "#000000",
                   opacity: 0.7,
-                  locked: true,
+                  locked: false, // Allow transformation and positioning
                   cornerRadius: 0,
                 };
                 sceneElements.push(captionBgElement);
@@ -455,17 +600,25 @@ export const useEditorStore = create<EditorStore>()(
                   fontSize: 28,
                   fill: "#FFFFFF",
                   textAlign: "center",
-                  locked: true,
+                  locked: false, // Allow transformation and positioning
                 };
                 sceneElements.push(captionTextElement);
 
                 // For now, a single caption for the whole script duration
+                // Use actual duration for accurate timing
                 sceneCaptions.push({
                   id: `caption-${timestamp}-${i}-0`,
                   text: scene.script,
                   startTime: 0,
-                  endTime: ttsResult.duration,
+                  endTime: actualDuration,
                 });
+
+                // Update scene duration to match actual voiceover duration
+                // This ensures scene duration matches the actual audio playback time
+                scene.duration = Math.max(3, Math.ceil(actualDuration));
+                console.log(
+                  `[Scene ${i}] Updated scene duration to ${scene.duration}s (matching voiceover)`
+                );
               } else {
                 console.error(
                   `Failed to generate voiceover for scene ${scene.id}:`,
@@ -477,28 +630,30 @@ export const useEditorStore = create<EditorStore>()(
                 `Error generating voiceover for scene ${scene.id}:`,
                 error
               );
-              // Still add other elements even if voiceover fails
-              if (sceneElements.length > 0) {
-                const currentState = get();
-                const updatedScenes = currentState.scenes.map((s) =>
-                  s.id === scene.id
-                    ? { ...s, elements: [...s.elements, ...sceneElements] }
-                    : s
-                );
-                set({ scenes: updatedScenes });
-              }
             }
-          } else {
-            // No script, just add image elements
-            if (sceneElements.length > 0) {
-              const currentState = get();
-              const updatedScenes = currentState.scenes.map((s) =>
+          }
+
+          // Update the scene with all generated elements, voiceover, and captions
+          // This runs regardless of whether voiceover succeeded or failed
+          if (
+            sceneElements.length > 0 ||
+            sceneVoiceover ||
+            sceneCaptions.length > 0
+          ) {
+            set((state) => ({
+              scenes: state.scenes.map((s) =>
                 s.id === scene.id
-                  ? { ...s, elements: [...s.elements, ...sceneElements] }
+                  ? {
+                      ...s,
+                      elements: [...s.elements, ...sceneElements],
+                      voiceover: sceneVoiceover,
+                      captions: sceneCaptions,
+                      // Update duration if voiceover was generated (scene.duration was updated above)
+                      duration: sceneVoiceover ? scene.duration : s.duration,
+                    }
                   : s
-              );
-              set({ scenes: updatedScenes });
-            }
+              ),
+            }));
           }
         }
       },
@@ -754,9 +909,183 @@ export const useEditorStore = create<EditorStore>()(
         const history = state.history[sceneId];
         return history ? history.redo.length > 0 : false;
       },
+      regenerateVoiceover: async (sceneId, ttsProvider = "openai") => {
+        const state = get();
+        const scene = state.scenes.find((s) => s.id === sceneId);
+
+        if (!scene) {
+          throw new Error(`Scene ${sceneId} not found`);
+        }
+
+        if (!scene.script || scene.script.trim().length === 0) {
+          throw new Error("Scene has no script to generate voiceover");
+        }
+
+        try {
+          console.log(`Regenerating voiceover for scene ${sceneId}...`);
+
+          // 1. Generate new voiceover using backend API
+          const ttsResult = (await apiClient.generateTTS({
+            text: scene.script,
+            provider: ttsProvider,
+            ...(ttsProvider === "elevenlabs"
+              ? {
+                  voice_id: "21m00Tcm4TlvDq8ikWAM",
+                  model_id: "eleven_monolingual_v1",
+                }
+              : {
+                  voice: "alloy",
+                  model: "tts-1",
+                }),
+          })) as any;
+
+          if (!ttsResult.success || !ttsResult.audioUrl) {
+            throw new Error(
+              "Failed to generate voiceover: No audio URL returned"
+            );
+          }
+
+          // 2. Get actual audio duration
+          let actualDuration = ttsResult.duration;
+          try {
+            actualDuration = await getAudioDuration(ttsResult.audioUrl);
+            console.log(`Actual audio duration: ${actualDuration.toFixed(2)}s`);
+          } catch (error) {
+            console.warn(
+              "Failed to get actual audio duration, using estimate:",
+              error
+            );
+            // Fallback to calculated duration from text
+            actualDuration = calculateDurationFromText(
+              scene.script,
+              ttsProvider
+            );
+          }
+
+          // 3. Update scene with new voiceover
+          set((state) => {
+            const updatedScenes = state.scenes.map((s) => {
+              if (s.id !== sceneId) return s;
+
+              // Find and update voiceover audio element
+              const updatedElements = s.elements.map((el) =>
+                el.type === "audio" && el.label === "Voiceover"
+                  ? { ...el, assetUrl: ttsResult.audioUrl }
+                  : el
+              );
+
+              // Update caption text element if it exists
+              const elementsWithUpdatedCaption = updatedElements.map((el) =>
+                el.type === "text" && el.label === "Caption Text"
+                  ? { ...el, content: scene.script }
+                  : el
+              );
+
+              // Update voiceover and captions
+              const updatedVoiceover: Voiceover = {
+                audioUrl: ttsResult.audioUrl,
+                duration: actualDuration,
+                voice: ttsResult.voice || ttsResult.voice_id || "alloy",
+                model: ttsResult.model || ttsResult.model_id || "tts-1",
+                provider: ttsProvider,
+              };
+
+              const updatedCaptions: Caption[] = [
+                {
+                  id: `caption-${sceneId}-0`,
+                  text: scene.script,
+                  startTime: 0,
+                  endTime: actualDuration,
+                },
+              ];
+
+              return {
+                ...s,
+                voiceover: updatedVoiceover,
+                captions: updatedCaptions,
+                duration: Math.max(3, Math.ceil(actualDuration)), // Update scene duration
+                elements: elementsWithUpdatedCaption,
+              };
+            });
+
+            return { scenes: updatedScenes };
+          });
+
+          console.log(
+            `✅ Successfully regenerated voiceover for scene ${sceneId}`
+          );
+        } catch (error) {
+          console.error(
+            `❌ Error regenerating voiceover for scene ${sceneId}:`,
+            error
+          );
+          throw error;
+        }
+      },
+      exportProject: () => {
+        const state = get();
+        const projectData = {
+          version: "1.0.0",
+          aspectRatio: state.aspectRatio,
+          scenes: state.scenes,
+          exportedAt: new Date().toISOString(),
+        };
+
+        return {
+          project: projectData,
+          download: () => {
+            const jsonString = JSON.stringify(projectData, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `project-${Date.now()}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          },
+        };
+      },
     }),
     {
       name: "canvas-editor-store",
+      // Exclude large data from persistence to avoid localStorage quota errors
+      partialize: (state) => {
+        // Remove large base64 data URLs from elements before persisting
+        const sanitizedScenes = state.scenes.map((scene) => ({
+          ...scene,
+          // Remove voiceover audioUrl (base64 data can be very large)
+          voiceover: scene.voiceover
+            ? {
+                ...scene.voiceover,
+                audioUrl: "", // Don't persist base64 audio data
+              }
+            : undefined,
+          // Remove large asset URLs from elements (keep only metadata)
+          elements: scene.elements.map((element) => {
+            // If assetUrl is a base64 data URL, don't persist it
+            if (element.assetUrl && element.assetUrl.startsWith("data:")) {
+              return {
+                ...element,
+                assetUrl: "", // Don't persist base64 data
+              };
+            }
+            return element;
+          }),
+        }));
+
+        return {
+          ...state,
+          scenes: sanitizedScenes,
+          // Don't persist history (can be large)
+          history: {},
+        };
+      },
+      // Note: Large base64 data (audio/video URLs) is excluded from persistence
+      // to avoid localStorage quota errors. Users will need to regenerate
+      // voiceovers after page refresh, but all other data (scenes, elements, etc.)
+      // will be preserved.
     }
   )
 );

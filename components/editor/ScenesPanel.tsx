@@ -16,6 +16,7 @@ import { useEditorStore } from "@/store/editorStore";
 type ScenesPanelProps = {
   isCollapsed?: boolean;
   onToggle?: () => void;
+  onGenerateScriptClick?: () => void;
 };
 
 const ScenesPanel = ({ isCollapsed = false, onToggle, onGenerateScriptClick }: ScenesPanelProps) => {
@@ -28,6 +29,7 @@ const ScenesPanel = ({ isCollapsed = false, onToggle, onGenerateScriptClick }: S
     duplicateScene,
     deleteScene,
     updateSceneScript,
+    regenerateVoiceover,
   } = useEditorStore((state) => ({
     scenes: state.scenes,
     activeSceneId: state.activeSceneId,
@@ -36,6 +38,7 @@ const ScenesPanel = ({ isCollapsed = false, onToggle, onGenerateScriptClick }: S
     duplicateScene: state.duplicateScene,
     deleteScene: state.deleteScene,
     updateSceneScript: state.updateSceneScript,
+    regenerateVoiceover: state.regenerateVoiceover,
   }));
 
   const totalDuration = useMemo(
@@ -106,6 +109,8 @@ const ScenesPanel = ({ isCollapsed = false, onToggle, onGenerateScriptClick }: S
             onDuplicate={() => duplicateScene(scene.id)}
             onDelete={() => deleteScene(scene.id)}
             onScriptUpdate={(script) => updateSceneScript(scene.id, script)}
+            onRegenerateVoiceover={() => regenerateVoiceover(scene.id)}
+            hasVoiceover={!!scene.voiceover}
           />
         ))}
         <motion.button
