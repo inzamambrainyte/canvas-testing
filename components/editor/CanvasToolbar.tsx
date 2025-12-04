@@ -11,7 +11,9 @@ import {
   ZoomIn,
   ZoomOut,
   Monitor,
+  ChevronDown,
 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
 import { useEditorStore } from "@/store/editorStore";
 import type { AspectRatio } from "@/lib/types";
 
@@ -26,6 +28,9 @@ type CanvasToolbarProps = {
 };
 
 const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
   const {
     aspectRatio,
     setAspectRatio,
@@ -40,6 +45,7 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
     canUndo,
     canRedo,
     exportProject,
+    exportProjectAsJson2Video,
   } = useEditorStore((state) => ({
     aspectRatio: state.aspectRatio,
     setAspectRatio: state.setAspectRatio,
@@ -54,7 +60,28 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
     canUndo: state.canUndo,
     canRedo: state.canRedo,
     exportProject: state.exportProject,
+    exportProjectAsJson2Video: state.exportProjectAsJson2Video,
   }));
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        exportMenuRef.current &&
+        !exportMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    if (isExportMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isExportMenuOpen]);
 
   const activeSceneTitle = useMemo(
     () =>
@@ -170,18 +197,53 @@ const CanvasToolbar = ({ onPFVClick }: CanvasToolbarProps = {}) => {
           <Monitor className="h-4 w-4" aria-hidden />
           PFV
         </motion.button>
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            const { download } = exportProject();
-            download();
-          }}
-          className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-start hover:bg-slate-50"
-        >
-          <Download className="h-4 w-4" aria-hidden />
-          Export
-        </motion.button>
+        <div className="relative" ref={exportMenuRef}>
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.97 }}
+            onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+            className="inline-flex items-center gap-2 rounded-full border border-canvas-border px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-brand-start hover:bg-slate-50"
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            Export
+            <ChevronDown className="h-3 w-3" aria-hidden />
+          </motion.button>
+
+          {isExportMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-canvas-border bg-white shadow-lg">
+              <div className="py-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const { download } = exportProject();
+                    download();
+                    setIsExportMenuOpen(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <div className="font-medium">Export as JSON</div>
+                  <div className="text-xs text-slate-500">
+                    Native project format
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const { download } = exportProjectAsJson2Video();
+                    download();
+                    setIsExportMenuOpen(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <div className="font-medium">Export as json2video</div>
+                  <div className="text-xs text-slate-500">
+                    Compatible with json2video API
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

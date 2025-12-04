@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { apiClient } from "@/lib/api/client";
 import { getAudioDuration, calculateDurationFromText } from "@/lib/utils/audio";
+import { convertToJson2VideoFormat } from "@/lib/utils/json2videoConverter";
 
 type HistoryState = {
   undo: CanvasElement[][];
@@ -68,6 +69,10 @@ type EditorStore = {
       scenes: Scene[];
       exportedAt: string;
     };
+    download: () => void;
+  };
+  exportProjectAsJson2Video: () => {
+    project: any;
     download: () => void;
   };
 };
@@ -1040,6 +1045,37 @@ export const useEditorStore = create<EditorStore>()(
             const link = document.createElement("a");
             link.href = url;
             link.download = `project-${Date.now()}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+          },
+        };
+      },
+      exportProjectAsJson2Video: () => {
+        const state = get();
+        
+        // Collect all voiceovers from scenes
+        const voiceovers = state.scenes
+          .map((scene) => scene.voiceover)
+          .filter((vo): vo is Voiceover => vo !== undefined);
+
+        // Convert to json2video format
+        const json2videoProject = convertToJson2VideoFormat(
+          state.scenes,
+          state.aspectRatio,
+          voiceovers
+        );
+
+        return {
+          project: json2videoProject,
+          download: () => {
+            const jsonString = JSON.stringify(json2videoProject, null, 2);
+            const blob = new Blob([jsonString], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `project-json2video-${Date.now()}.json`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
